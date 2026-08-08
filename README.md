@@ -10,7 +10,8 @@ It identifies driver-needed/core components, searches official vendor/Microsoft 
 2. Double-click `Driver Link Scout.vbs`.
 3. Press `Scan Links` to smart-search exact direct driver download files.
 4. Press `Download` to save matched packages into a folder in Downloads.
-5. Use `Copy` or `Save` if you want to share the list.
+5. Press `Ask AI` to ask follow-up questions using the current scan/report as context.
+6. Use `Copy` or `Save` if you want to share the list.
 
 URLs in the report are clickable. `Download` saves matched official vendor/Microsoft files only; it does not install or run them.
 
@@ -32,6 +33,8 @@ Driver Link Scout searches Google/DuckDuckGo results, crawls official vendor/Mic
 
 If `OPENAI_API_KEY` is set on the Windows PC, Driver Link Scout asks OpenAI with web search to find exact official driver file URLs before falling back to the built-in crawler.
 
+The `Ask AI` button opens a chat window inside the app. It uses the current scan/report as context and can help inspect missing links, suspicious results, or a specific device.
+
 PowerShell:
 
 ```powershell
@@ -43,7 +46,7 @@ Restart the app after setting the key.
 Optional model override:
 
 ```powershell
-[Environment]::SetEnvironmentVariable("DRIVER_LINK_SCOUT_OPENAI_MODEL", "gpt-5.6-terra", "User")
+[Environment]::SetEnvironmentVariable("DRIVER_LINK_SCOUT_OPENAI_MODEL", "gpt-5", "User")
 ```
 
 ## Safety Notes

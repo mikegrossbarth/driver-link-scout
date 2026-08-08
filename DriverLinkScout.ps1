@@ -191,6 +191,39 @@ function Get-DriverReport {
     return Get-SmartDriverDownloadReport
 }
 
+function Get-OpenAiApiKey {
+    $apiKey = [Environment]::GetEnvironmentVariable("OPENAI_API_KEY", "User")
+    if ([string]::IsNullOrWhiteSpace($apiKey)) {
+        $apiKey = [Environment]::GetEnvironmentVariable("OPENAI_API_KEY", "Machine")
+    }
+    if ([string]::IsNullOrWhiteSpace($apiKey)) {
+        $apiKey = $env:OPENAI_API_KEY
+    }
+    return $apiKey
+}
+
+function Get-OpenAiModel {
+    $model = $env:DRIVER_LINK_SCOUT_OPENAI_MODEL
+    if ([string]::IsNullOrWhiteSpace($model)) { $model = "gpt-5" }
+    return $model
+}
+
+function Get-OpenAiResponseText {
+    param($Response)
+
+    $text = $Response.output_text
+    if (-not [string]::IsNullOrWhiteSpace($text)) { return $text }
+    if ($null -eq $Response.output) { return "" }
+
+    $parts = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($item in @($Response.output)) {
+        foreach ($content in @($item.content)) {
+            if ($content.text) { $parts.Add([string]$content.text) | Out-Null }
+        }
+    }
+    return ($parts -join "`r`n")
+}
+
 function Get-CatalogDownloadUrls {
     param(
         [string]$HardwareId,
@@ -407,17 +440,10 @@ function Get-AiDriverUrls {
         [array]$AllowedDomains
     )
 
-    $apiKey = [Environment]::GetEnvironmentVariable("OPENAI_API_KEY", "User")
-    if ([string]::IsNullOrWhiteSpace($apiKey)) {
-        $apiKey = [Environment]::GetEnvironmentVariable("OPENAI_API_KEY", "Machine")
-    }
-    if ([string]::IsNullOrWhiteSpace($apiKey)) {
-        $apiKey = $env:OPENAI_API_KEY
-    }
+    $apiKey = Get-OpenAiApiKey
     if ([string]::IsNullOrWhiteSpace($apiKey)) { return @() }
 
-    $model = $env:DRIVER_LINK_SCOUT_OPENAI_MODEL
-    if ([string]::IsNullOrWhiteSpace($model)) { $model = "gpt-5.6-terra" }
+    $model = Get-OpenAiModel
 
     $prompt = @"
 You are helping a custom PC builder find exact driver download files.
@@ -456,10 +482,8 @@ Rules:
         return @()
     }
 
-    $text = $response.output_text
-    if ([string]::IsNullOrWhiteSpace($text)) {
-        $text = ($response.output | ConvertTo-Json -Depth 12)
-    }
+    $text = Get-OpenAiResponseText $response
+    if ([string]::IsNullOrWhiteSpace($text)) { $text = ($response.output | ConvertTo-Json -Depth 12) }
     $jsonText = ([regex]::Match($text, '\{[\s\S]*\}')).Value
     if ([string]::IsNullOrWhiteSpace($jsonText)) { return @() }
 
@@ -478,6 +502,69 @@ Rules:
     }
 
     return @($urls | Select-Object -First 4)
+}
+
+function Invoke-DriverAssistantChat {
+    param(
+        [string]$Message,
+        [string]$ReportContext
+    )
+
+    $apiKey = Get-OpenAiApiKey
+    if ([string]::IsNullOrWhiteSpace($apiKey)) {
+        return @"
+OpenAI is not connected yet.
+
+Set OPENAI_API_KEY on this Windows PC, restart Driver Link Scout, then press ASK AI again.
+
+PowerShell:
+[Environment]::SetEnvironmentVariable("OPENAI_API_KEY", "your_api_key_here", "User")
+"@
+    }
+
+    $model = Get-OpenAiModel
+    if ($ReportContext.Length -gt 9000) {
+        $ReportContext = $ReportContext.Substring(0, 9000)
+    }
+
+    $prompt = @"
+You are Driver Link Scout's AI assistant for a custom PC builder.
+
+Goal:
+- Help identify exact official driver download files for detected Windows hardware.
+- Prefer official PC, motherboard, chipset, GPU, network, audio, Bluetooth, storage, and Microsoft sources.
+- Never recommend third-party driver updater sites, mirrors, forums, ads, or random file hosts.
+- If a direct official package URL is not verifiable, say that and give the safest official next step.
+- If you list URLs, make each URL clickable and explain what hardware it appears to match.
+- Do not tell the user to run downloaded installers automatically.
+
+Current scan/report context:
+$ReportContext
+
+User question:
+$Message
+"@
+
+    $body = @{
+        model = $model
+        tools = @(@{ type = "web_search" })
+        input = $prompt
+    } | ConvertTo-Json -Depth 8
+
+    try {
+        $response = Invoke-RestMethod `
+            -Uri "https://api.openai.com/v1/responses" `
+            -Method Post `
+            -Headers @{ "Authorization" = "Bearer $apiKey"; "Content-Type" = "application/json" } `
+            -Body $body `
+            -TimeoutSec 120
+        $text = Get-OpenAiResponseText $response
+        if ([string]::IsNullOrWhiteSpace($text)) { return "AI returned an empty response." }
+        return $text
+    }
+    catch {
+        return "AI request failed:`r`n`r`n$($_.Exception.Message)"
+    }
 }
 
 function Get-SmartDriverUrls {
@@ -966,6 +1053,94 @@ $appGreen = [System.Drawing.Color]::FromArgb(41, 222, 156)
 $appBlue = [System.Drawing.Color]::FromArgb(64, 152, 255)
 $appOrange = [System.Drawing.Color]::FromArgb(255, 177, 83)
 
+function Show-AiAssistantWindow {
+    param(
+        [string]$InitialContext
+    )
+
+    $chatForm = New-Object System.Windows.Forms.Form
+    $chatForm.Text = "Ask AI"
+    $chatForm.Size = New-Object System.Drawing.Size(760, 620)
+    $chatForm.StartPosition = "CenterParent"
+    $chatForm.MinimumSize = New-Object System.Drawing.Size(620, 500)
+    $chatForm.BackColor = $appBg
+    $chatForm.ForeColor = $appText
+
+    $chatHeader = New-Object System.Windows.Forms.Label
+    $chatHeader.Text = "Ask AI"
+    $chatHeader.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 20)
+    $chatHeader.ForeColor = $appGreen
+    $chatHeader.AutoSize = $true
+    $chatHeader.Location = New-Object System.Drawing.Point(22, 18)
+    $chatForm.Controls.Add($chatHeader)
+
+    $chatStatus = New-Object System.Windows.Forms.Label
+    $chatStatus.Text = "Uses the current scan/report as context."
+    $chatStatus.Font = New-Object System.Drawing.Font("Segoe UI", 9.5)
+    $chatStatus.ForeColor = $appMuted
+    $chatStatus.AutoSize = $true
+    $chatStatus.Location = New-Object System.Drawing.Point(25, 56)
+    $chatForm.Controls.Add($chatStatus)
+
+    $chatLog = New-Object System.Windows.Forms.RichTextBox
+    $chatLog.ReadOnly = $true
+    $chatLog.DetectUrls = $true
+    $chatLog.BorderStyle = "None"
+    $chatLog.Font = New-Object System.Drawing.Font("Segoe UI", 10)
+    $chatLog.BackColor = [System.Drawing.Color]::FromArgb(8, 13, 21)
+    $chatLog.ForeColor = [System.Drawing.Color]::FromArgb(215, 228, 236)
+    $chatLog.Location = New-Object System.Drawing.Point(24, 88)
+    $chatLog.Size = New-Object System.Drawing.Size(($chatForm.ClientSize.Width - 48), ($chatForm.ClientSize.Height - 226))
+    $chatLog.Anchor = "Top,Bottom,Left,Right"
+    $chatLog.Text = "Ask about missing drivers, suspicious results, or a specific device from the scan.`r`n"
+    $chatLog.Add_LinkClicked({ Start-Process $_.LinkText | Out-Null })
+    $chatForm.Controls.Add($chatLog)
+
+    $questionBox = New-Object System.Windows.Forms.TextBox
+    $questionBox.Multiline = $true
+    $questionBox.Font = New-Object System.Drawing.Font("Segoe UI", 10)
+    $questionBox.BackColor = [System.Drawing.Color]::FromArgb(14, 20, 31)
+    $questionBox.ForeColor = $appText
+    $questionBox.BorderStyle = "FixedSingle"
+    $questionBox.Location = New-Object System.Drawing.Point(24, ($chatForm.ClientSize.Height - 122))
+    $questionBox.Size = New-Object System.Drawing.Size(($chatForm.ClientSize.Width - 182), 72)
+    $questionBox.Anchor = "Bottom,Left,Right"
+    $questionBox.Text = "Find exact official driver download links for the devices in this scan."
+    $chatForm.Controls.Add($questionBox)
+
+    $askButton = New-AppButton "ASK" ($chatForm.ClientSize.Width - 142) ($chatForm.ClientSize.Height - 122) 118 $appGreen $appBg
+    $askButton.Anchor = "Bottom,Right"
+    $chatForm.Controls.Add($askButton)
+
+    $closeButton = New-AppButton "CLOSE" ($chatForm.ClientSize.Width - 142) ($chatForm.ClientSize.Height - 70) 118 $appPanel2 $appText
+    $closeButton.Anchor = "Bottom,Right"
+    $chatForm.Controls.Add($closeButton)
+
+    $sendQuestion = {
+        $message = $questionBox.Text.Trim()
+        if ([string]::IsNullOrWhiteSpace($message)) { return }
+
+        $askButton.Enabled = $false
+        $questionBox.Enabled = $false
+        $chatStatus.Text = "Thinking..."
+        $chatLog.AppendText("`r`nYou:`r`n$message`r`n")
+        [System.Windows.Forms.Application]::DoEvents()
+
+        $answer = Invoke-DriverAssistantChat $message $InitialContext
+        $chatLog.AppendText("`r`nAI:`r`n$answer`r`n")
+        $chatLog.SelectionStart = $chatLog.TextLength
+        $chatLog.ScrollToCaret()
+        $chatStatus.Text = "Ready"
+        $questionBox.Enabled = $true
+        $askButton.Enabled = $true
+        $questionBox.Focus()
+    }
+
+    $askButton.Add_Click($sendQuestion)
+    $closeButton.Add_Click({ $chatForm.Close() })
+    [void]$chatForm.ShowDialog($form)
+}
+
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "Driver Link Scout"
 $form.Size = New-Object System.Drawing.Size(1080, 760)
@@ -1085,11 +1260,14 @@ $commandBar.Controls.Add($scanButton)
 $downloadButton = New-AppButton "DOWNLOAD" 164 18 132 $appOrange $appBg
 $commandBar.Controls.Add($downloadButton)
 
-$copyButton = New-AppButton "COPY" 310 18 94 $appPanel2 $appText
+$aiButton = New-AppButton "ASK AI" 310 18 104 $appBlue $appText
+$commandBar.Controls.Add($aiButton)
+
+$copyButton = New-AppButton "COPY" 428 18 94 $appPanel2 $appText
 $copyButton.Enabled = $false
 $commandBar.Controls.Add($copyButton)
 
-$saveButton = New-AppButton "SAVE" 418 18 94 $appPanel2 $appText
+$saveButton = New-AppButton "SAVE" 536 18 94 $appPanel2 $appText
 $saveButton.Enabled = $false
 $commandBar.Controls.Add($saveButton)
 
@@ -1099,7 +1277,7 @@ $hint.Font = New-Object System.Drawing.Font("Segoe UI", 9.5)
 $hint.ForeColor = $appMuted
 $hint.AutoSize = $false
 $hint.Size = New-Object System.Drawing.Size(180, 24)
-$hint.Location = New-Object System.Drawing.Point(534, 28)
+$hint.Location = New-Object System.Drawing.Point(652, 28)
 $hint.Anchor = "Top,Left"
 $commandBar.Controls.Add($hint)
 
@@ -1141,6 +1319,7 @@ Update-AppLayout
 $scanButton.Add_Click({
     $scanButton.Enabled = $false
     $downloadButton.Enabled = $false
+    $aiButton.Enabled = $false
     $copyButton.Enabled = $false
     $saveButton.Enabled = $false
     $status.Text = "Resolving..."
@@ -1161,6 +1340,7 @@ $scanButton.Add_Click({
     finally {
         $scanButton.Enabled = $true
         $downloadButton.Enabled = $true
+        $aiButton.Enabled = $true
     }
 })
 
@@ -1175,6 +1355,7 @@ $downloadButton.Add_Click({
 
     $scanButton.Enabled = $false
     $downloadButton.Enabled = $false
+    $aiButton.Enabled = $false
     $copyButton.Enabled = $false
     $saveButton.Enabled = $false
     $status.Text = "Downloading..."
@@ -1195,7 +1376,16 @@ $downloadButton.Add_Click({
     finally {
         $scanButton.Enabled = $true
         $downloadButton.Enabled = $true
+        $aiButton.Enabled = $true
     }
+})
+
+$aiButton.Add_Click({
+    $context = $output.Text
+    if ([string]::IsNullOrWhiteSpace($context)) {
+        $context = "No scan report has been generated yet."
+    }
+    Show-AiAssistantWindow $context
 })
 
 $copyButton.Add_Click({
