@@ -1,6 +1,6 @@
 # Driver Link Scout
 
-Driver Link Scout is a Windows-only utility that scans the current PC and prints a list of official driver/support URLs.
+Driver Link Scout is a LUCAS-themed, Windows-only utility that scans the current PC and prints a list of official driver/support URLs.
 
 It does not download drivers. It does not install drivers. It does not change the computer.
 

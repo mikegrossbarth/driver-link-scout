@@ -198,65 +198,188 @@ function Get-DriverReport {
     return ($lines -join [Environment]::NewLine)
 }
 
+function New-LucasButton {
+    param(
+        [string]$Text,
+        [int]$X,
+        [int]$Y,
+        [int]$Width,
+        [System.Drawing.Color]$BackColor,
+        [System.Drawing.Color]$ForeColor
+    )
+
+    $button = New-Object System.Windows.Forms.Button
+    $button.Text = $Text
+    $button.FlatStyle = "Flat"
+    $button.FlatAppearance.BorderSize = 0
+    $button.BackColor = $BackColor
+    $button.ForeColor = $ForeColor
+    $button.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 10)
+    $button.Size = New-Object System.Drawing.Size($Width, 40)
+    $button.Location = New-Object System.Drawing.Point($X, $Y)
+    $button.Cursor = [System.Windows.Forms.Cursors]::Hand
+    $normal = $BackColor
+    $hover = [System.Drawing.Color]::FromArgb(
+        [Math]::Min(255, $BackColor.R + 16),
+        [Math]::Min(255, $BackColor.G + 16),
+        [Math]::Min(255, $BackColor.B + 16)
+    )
+    $button.Add_MouseEnter({ $this.BackColor = $hover })
+    $button.Add_MouseLeave({ $this.BackColor = $normal })
+    return $button
+}
+
+$lucasBg = [System.Drawing.Color]::FromArgb(7, 11, 18)
+$lucasPanel = [System.Drawing.Color]::FromArgb(14, 20, 31)
+$lucasPanel2 = [System.Drawing.Color]::FromArgb(18, 27, 42)
+$lucasText = [System.Drawing.Color]::FromArgb(234, 242, 248)
+$lucasMuted = [System.Drawing.Color]::FromArgb(151, 166, 184)
+$lucasGreen = [System.Drawing.Color]::FromArgb(41, 222, 156)
+$lucasBlue = [System.Drawing.Color]::FromArgb(64, 152, 255)
+$lucasOrange = [System.Drawing.Color]::FromArgb(255, 177, 83)
+
 $form = New-Object System.Windows.Forms.Form
-$form.Text = "Driver Link Scout"
-$form.Size = New-Object System.Drawing.Size(980, 720)
+$form.Text = "LUCAS Driver Link Scout"
+$form.Size = New-Object System.Drawing.Size(1080, 760)
 $form.StartPosition = "CenterScreen"
-$form.MinimumSize = New-Object System.Drawing.Size(760, 520)
+$form.MinimumSize = New-Object System.Drawing.Size(860, 620)
+$form.BackColor = $lucasBg
+$form.ForeColor = $lucasText
+
+$header = New-Object System.Windows.Forms.Panel
+$header.Dock = "Top"
+$header.Height = 172
+$header.BackColor = $lucasPanel
+$header.Add_Paint({
+    param($sender, $event)
+    $rect = New-Object System.Drawing.Rectangle(0, 0, $sender.Width, $sender.Height)
+    $brush = New-Object System.Drawing.Drawing2D.LinearGradientBrush(
+        $rect,
+        [System.Drawing.Color]::FromArgb(8, 14, 24),
+        [System.Drawing.Color]::FromArgb(19, 43, 55),
+        0
+    )
+    $event.Graphics.FillRectangle($brush, $rect)
+    $brush.Dispose()
+    $pen = New-Object System.Drawing.Pen($lucasGreen, 3)
+    $event.Graphics.DrawLine($pen, 0, $sender.Height - 2, $sender.Width, $sender.Height - 2)
+    $pen.Dispose()
+})
+$form.Controls.Add($header)
+
+$brand = New-Object System.Windows.Forms.Label
+$brand.Text = "LUCAS"
+$brand.Font = New-Object System.Drawing.Font("Segoe UI Black", 28, [System.Drawing.FontStyle]::Bold)
+$brand.ForeColor = $lucasGreen
+$brand.BackColor = [System.Drawing.Color]::Transparent
+$brand.AutoSize = $true
+$brand.Location = New-Object System.Drawing.Point(28, 22)
+$header.Controls.Add($brand)
 
 $title = New-Object System.Windows.Forms.Label
 $title.Text = "Driver Link Scout"
-$title.Font = New-Object System.Drawing.Font("Segoe UI", 18, [System.Drawing.FontStyle]::Bold)
+$title.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 24)
+$title.ForeColor = $lucasText
+$title.BackColor = [System.Drawing.Color]::Transparent
 $title.AutoSize = $true
-$title.Location = New-Object System.Drawing.Point(18, 16)
-$form.Controls.Add($title)
+$title.Location = New-Object System.Drawing.Point(28, 68)
+$header.Controls.Add($title)
 
 $subtitle = New-Object System.Windows.Forms.Label
-$subtitle.Text = "Scan this Windows PC and generate official driver/support URLs. This app does not download or install drivers."
-$subtitle.Font = New-Object System.Drawing.Font("Segoe UI", 10)
+$subtitle.Text = "Scan this Windows PC and generate official driver/support URLs. No downloads. No installs. Just the map."
+$subtitle.Font = New-Object System.Drawing.Font("Segoe UI", 10.5)
+$subtitle.ForeColor = $lucasMuted
+$subtitle.BackColor = [System.Drawing.Color]::Transparent
 $subtitle.AutoSize = $true
-$subtitle.Location = New-Object System.Drawing.Point(22, 55)
-$form.Controls.Add($subtitle)
+$subtitle.Location = New-Object System.Drawing.Point(31, 112)
+$header.Controls.Add($subtitle)
 
-$scanButton = New-Object System.Windows.Forms.Button
-$scanButton.Text = "Scan This PC"
-$scanButton.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
-$scanButton.Size = New-Object System.Drawing.Size(140, 36)
-$scanButton.Location = New-Object System.Drawing.Point(22, 86)
-$form.Controls.Add($scanButton)
+$signal = New-Object System.Windows.Forms.Label
+$signal.Text = "INSPECTION MODE"
+$signal.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 9)
+$signal.ForeColor = $lucasBg
+$signal.BackColor = $lucasOrange
+$signal.TextAlign = "MiddleCenter"
+$signal.Size = New-Object System.Drawing.Size(142, 28)
+$signal.Anchor = "Top,Right"
+$signal.Location = New-Object System.Drawing.Point(900, 30)
+$header.Controls.Add($signal)
 
-$copyButton = New-Object System.Windows.Forms.Button
-$copyButton.Text = "Copy Report"
-$copyButton.Font = New-Object System.Drawing.Font("Segoe UI", 10)
-$copyButton.Size = New-Object System.Drawing.Size(120, 36)
-$copyButton.Location = New-Object System.Drawing.Point(174, 86)
-$copyButton.Enabled = $false
-$form.Controls.Add($copyButton)
+$statusShell = New-Object System.Windows.Forms.Panel
+$statusShell.BackColor = [System.Drawing.Color]::FromArgb(10, 17, 27)
+$statusShell.Size = New-Object System.Drawing.Size(180, 34)
+$statusShell.Anchor = "Top,Right"
+$statusShell.Location = New-Object System.Drawing.Point(862, 76)
+$header.Controls.Add($statusShell)
 
-$saveButton = New-Object System.Windows.Forms.Button
-$saveButton.Text = "Save Report"
-$saveButton.Font = New-Object System.Drawing.Font("Segoe UI", 10)
-$saveButton.Size = New-Object System.Drawing.Size(120, 36)
-$saveButton.Location = New-Object System.Drawing.Point(306, 86)
-$saveButton.Enabled = $false
-$form.Controls.Add($saveButton)
+$statusTag = New-Object System.Windows.Forms.Label
+$statusTag.Text = "LIVE"
+$statusTag.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 8)
+$statusTag.ForeColor = $lucasGreen
+$statusTag.AutoSize = $true
+$statusTag.Location = New-Object System.Drawing.Point(12, 9)
+$statusShell.Controls.Add($statusTag)
 
 $status = New-Object System.Windows.Forms.Label
-$status.Text = "Ready."
-$status.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+$status.Text = "Ready"
+$status.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 9.5)
+$status.ForeColor = $lucasText
 $status.AutoSize = $true
-$status.Location = New-Object System.Drawing.Point(440, 95)
-$form.Controls.Add($status)
+$status.Location = New-Object System.Drawing.Point(36, 8)
+$statusShell.Controls.Add($status)
 
-$output = New-Object System.Windows.Forms.TextBox
+$main = New-Object System.Windows.Forms.Panel
+$main.Dock = "Fill"
+$main.Padding = New-Object System.Windows.Forms.Padding(24, 22, 24, 22)
+$main.BackColor = $lucasBg
+$form.Controls.Add($main)
+
+$commandBar = New-Object System.Windows.Forms.Panel
+$commandBar.Dock = "Top"
+$commandBar.Height = 76
+$commandBar.BackColor = $lucasPanel
+$main.Controls.Add($commandBar)
+
+$scanButton = New-LucasButton "SCAN THIS PC" 18 18 154 $lucasGreen $lucasBg
+$commandBar.Controls.Add($scanButton)
+
+$copyButton = New-LucasButton "COPY REPORT" 186 18 140 $lucasPanel2 $lucasText
+$copyButton.Enabled = $false
+$commandBar.Controls.Add($copyButton)
+
+$saveButton = New-LucasButton "SAVE REPORT" 340 18 140 $lucasPanel2 $lucasText
+$saveButton.Enabled = $false
+$commandBar.Controls.Add($saveButton)
+
+$hint = New-Object System.Windows.Forms.Label
+$hint.Text = "Official sources only. OEM first, Microsoft catalog second, component vendors third."
+$hint.Font = New-Object System.Drawing.Font("Segoe UI", 9.5)
+$hint.ForeColor = $lucasMuted
+$hint.AutoSize = $true
+$hint.Location = New-Object System.Drawing.Point(504, 28)
+$hint.Anchor = "Top,Left"
+$commandBar.Controls.Add($hint)
+
+$reportShell = New-Object System.Windows.Forms.Panel
+$reportShell.Dock = "Fill"
+$reportShell.Padding = New-Object System.Windows.Forms.Padding(1)
+$reportShell.BackColor = [System.Drawing.Color]::FromArgb(39, 62, 82)
+$main.Controls.Add($reportShell)
+
+$output = New-Object System.Windows.Forms.RichTextBox
+$output.BorderStyle = "None"
+$output.Dock = "Fill"
+$output.ReadOnly = $true
 $output.Multiline = $true
 $output.ScrollBars = "Both"
 $output.WordWrap = $false
-$output.Font = New-Object System.Drawing.Font("Consolas", 10)
-$output.Location = New-Object System.Drawing.Point(22, 138)
-$output.Size = New-Object System.Drawing.Size(920, 510)
-$output.Anchor = "Top,Bottom,Left,Right"
-$form.Controls.Add($output)
+$output.Font = New-Object System.Drawing.Font("Cascadia Mono", 10)
+$output.BackColor = [System.Drawing.Color]::FromArgb(8, 13, 21)
+$output.ForeColor = [System.Drawing.Color]::FromArgb(215, 228, 236)
+$output.SelectionBackColor = [System.Drawing.Color]::FromArgb(37, 84, 108)
+$output.Text = "Ready for scan.`r`n`r`nPress SCAN THIS PC to identify this machine and build a trusted driver-link report."
+$reportShell.Controls.Add($output)
+$commandBar.BringToFront()
 
 $scanButton.Add_Click({
     $scanButton.Enabled = $false
