@@ -2,17 +2,17 @@
 
 Driver Link Scout is a LUCAS-themed, Windows-only utility that scans the current PC and prints official driver URLs.
 
-It identifies driver-needed/core components and resolves Microsoft Update Catalog driver package URLs for detected hardware IDs. It can also download the matched packages. It does not install drivers or change the computer.
+It identifies driver-needed/core components, searches official vendor/Microsoft pages for exact direct driver files, and remembers matches by hardware ID. It does not install drivers or change the computer.
 
 ## How to Run
 
 1. Open this folder on the Windows computer you want to scan.
 2. Double-click `Driver Link Scout.vbs`.
-3. Press `Scan Links` to show direct driver package URLs only.
-4. Press `Download` to save matched Microsoft Update Catalog driver packages into a folder in Downloads.
+3. Press `Scan Links` to smart-search exact direct driver download files.
+4. Press `Download` to save matched packages into a folder in Downloads.
 5. Use `Copy` or `Save` if you want to share the list.
 
-URLs in the report are clickable. `Download` saves matched Microsoft Catalog packages only; it does not install or run them.
+URLs in the report are clickable. `Download` saves matched official vendor/Microsoft files only; it does not install or run them.
 
 ## What It Checks
 
@@ -26,7 +26,7 @@ URLs in the report are clickable. `Download` saves matched Microsoft Catalog pac
 
 ## Download Source
 
-Driver Link Scout downloads only matched Microsoft Update Catalog packages by detected hardware ID.
+Driver Link Scout searches Google/DuckDuckGo results, crawls official vendor/Microsoft pages, extracts direct `.exe`, `.msi`, `.zip`, or `.cab` files, and caches matches in `%LOCALAPPDATA%\LUCAS Driver Link Scout\driver-url-cache.json`.
 
 ## Safety Notes
 

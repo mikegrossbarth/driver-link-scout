@@ -188,7 +188,7 @@ function Get-DriverScanData {
 }
 
 function Get-DriverReport {
-    return Get-ExactCatalogDownloadReport
+    return Get-SmartDriverDownloadReport
 }
 
 function Get-CatalogDownloadUrls {
@@ -225,6 +225,286 @@ function Get-CatalogDownloadUrls {
     }
 
     return $results
+}
+
+function Get-CachePath {
+    $folder = Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) "LUCAS Driver Link Scout"
+    New-Item -ItemType Directory -Path $folder -Force | Out-Null
+    return (Join-Path $folder "driver-url-cache.json")
+}
+
+function Read-DriverUrlCache {
+    $path = Get-CachePath
+    if (-not (Test-Path $path)) { return @{} }
+    try {
+        $json = Get-Content -Path $path -Raw
+        if ([string]::IsNullOrWhiteSpace($json)) { return @{} }
+        $data = ConvertFrom-Json $json
+        $cache = @{}
+        foreach ($property in $data.PSObject.Properties) {
+            $cache[$property.Name] = $property.Value
+        }
+        return $cache
+    }
+    catch {
+        return @{}
+    }
+}
+
+function Write-DriverUrlCache {
+    param([hashtable]$Cache)
+
+    $path = Get-CachePath
+    ($Cache | ConvertTo-Json -Depth 8) | Set-Content -Path $path -Encoding UTF8
+}
+
+function Get-CacheKey {
+    param($Device)
+
+    if ($Device.HardwareId) { return $Device.HardwareId }
+    return ($Device.Name -replace '[^A-Za-z0-9]+', '_')
+}
+
+function Get-VendorDomainsForDevice {
+    param($Device)
+
+    $text = ("{0} {1} {2}" -f $Device.Name, $Device.Manufacturer, $Device.HardwareId).ToLowerInvariant()
+    $domains = New-Object 'System.Collections.Generic.List[string]'
+    $domains.Add("catalog.update.microsoft.com") | Out-Null
+    $domains.Add("download.windowsupdate.com") | Out-Null
+
+    if ($text -match "ven_8086|intel") { $domains.Add("intel.com") | Out-Null }
+    if ($text -match "ven_10de|nvidia|geforce|rtx|gtx") { $domains.Add("nvidia.com") | Out-Null }
+    if ($text -match "ven_1002|ven_1022|amd radeon|advanced micro devices|amd ryzen") { $domains.Add("amd.com") | Out-Null }
+    if ($text -match "ven_10ec|realtek") { $domains.Add("realtek.com") | Out-Null }
+    if ($text -match "ven_14c3|mediatek|ralink") { $domains.Add("mediatek.com") | Out-Null }
+    if ($text -match "ven_168c|ven_17cb|qualcomm|atheros|killer") { $domains.Add("qualcomm.com") | Out-Null }
+    if ($text -match "ven_14e4|broadcom") { $domains.Add("broadcom.com") | Out-Null }
+
+    return @($domains | Select-Object -Unique)
+}
+
+function Test-AllowedDomain {
+    param(
+        [string]$Url,
+        [array]$Domains
+    )
+
+    try {
+        $hostName = ([Uri]$Url).Host.ToLowerInvariant()
+    }
+    catch {
+        return $false
+    }
+
+    foreach ($domain in $Domains) {
+        if ($hostName -eq $domain -or $hostName.EndsWith("." + $domain)) { return $true }
+    }
+    return $false
+}
+
+function Test-DriverDownloadUrl {
+    param([string]$Url)
+
+    if ([string]::IsNullOrWhiteSpace($Url)) { return $false }
+    if ($Url -notmatch "^https?://") { return $false }
+    return ($Url -match "(?i)\.(exe|msi|zip|cab)(\?|$)")
+}
+
+function Resolve-Url {
+    param(
+        [string]$BaseUrl,
+        [string]$Href
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Href)) { return "" }
+    $Href = $Href -replace "&amp;", "&"
+    if ($Href -match "^https?://") { return $Href }
+    try {
+        return ([Uri]::new([Uri]$BaseUrl, $Href)).AbsoluteUri
+    }
+    catch {
+        return ""
+    }
+}
+
+function Get-SearchResultUrls {
+    param(
+        [string]$Query,
+        [array]$AllowedDomains,
+        [int]$MaxResults = 8
+    )
+
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $headers = @{ "User-Agent" = "Mozilla/5.0" }
+    $urls = New-Object 'System.Collections.Generic.List[string]'
+    $searchUrls = @(
+        "https://www.google.com/search?q=$(Encode-Query $Query)",
+        "https://duckduckgo.com/html/?q=$(Encode-Query $Query)"
+    )
+
+    foreach ($searchUrl in $searchUrls) {
+        try {
+            $response = Invoke-WebRequest -Uri $searchUrl -UseBasicParsing -TimeoutSec 25 -Headers $headers
+            $hrefs = [regex]::Matches($response.Content, 'href="(?<url>[^"]+)"')
+            foreach ($match in $hrefs) {
+                $url = $match.Groups["url"].Value -replace "&amp;", "&"
+                if ($url -match "/url\?q=([^&]+)") {
+                    $url = [Uri]::UnescapeDataString($Matches[1])
+                }
+                elseif ($url -match "uddg=([^&]+)") {
+                    $url = [Uri]::UnescapeDataString($Matches[1])
+                }
+                if ($url -notmatch "^https?://") { continue }
+                if (-not (Test-AllowedDomain $url $AllowedDomains)) { continue }
+                if ($urls -notcontains $url) { $urls.Add($url) | Out-Null }
+                if ($urls.Count -ge $MaxResults) { return @($urls) }
+            }
+        }
+        catch {
+            continue
+        }
+    }
+
+    return @($urls)
+}
+
+function Get-DirectDownloadsFromPage {
+    param(
+        [string]$PageUrl,
+        [array]$AllowedDomains,
+        [int]$MaxResults = 6
+    )
+
+    $downloads = New-Object 'System.Collections.Generic.List[string]'
+    if (Test-DriverDownloadUrl $PageUrl) {
+        if (Test-AllowedDomain $PageUrl $AllowedDomains) { $downloads.Add($PageUrl) | Out-Null }
+        return @($downloads)
+    }
+
+    try {
+        $response = Invoke-WebRequest -Uri $PageUrl -UseBasicParsing -TimeoutSec 30 -Headers @{ "User-Agent" = "Mozilla/5.0" }
+    }
+    catch {
+        return @()
+    }
+
+    $hrefs = [regex]::Matches($response.Content, '(?i)(href|src)=["''](?<url>[^"'']+)["'']')
+    foreach ($match in $hrefs) {
+        $url = Resolve-Url $PageUrl $match.Groups["url"].Value
+        if (-not (Test-DriverDownloadUrl $url)) { continue }
+        if (-not (Test-AllowedDomain $url $AllowedDomains)) { continue }
+        if ($downloads -notcontains $url) { $downloads.Add($url) | Out-Null }
+        if ($downloads.Count -ge $MaxResults) { break }
+    }
+
+    return @($downloads)
+}
+
+function Get-SmartDriverUrls {
+    param(
+        $Device,
+        [hashtable]$Cache
+    )
+
+    $key = Get-CacheKey $Device
+    if ($Cache.ContainsKey($key) -and $Cache[$key].Urls -and $Cache[$key].Urls.Count -gt 0) {
+        return [pscustomobject]@{
+            Source = "cache"
+            Urls = @($Cache[$key].Urls)
+            Query = $Cache[$key].Query
+        }
+    }
+
+    $allowedDomains = Get-VendorDomainsForDevice $Device
+    $queries = @(
+        ("{0} {1} driver download" -f $Device.Name, $Device.HardwareId),
+        ("{0} driver download official" -f $Device.Name),
+        ("{0} Windows driver download" -f $Device.HardwareId)
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+
+    $found = New-Object 'System.Collections.Generic.List[string]'
+    $usedQuery = ""
+
+    foreach ($query in $queries) {
+        $usedQuery = $query
+        $resultPages = @(Get-SearchResultUrls $query $allowedDomains 8)
+        foreach ($page in $resultPages) {
+            $direct = @(Get-DirectDownloadsFromPage $page $allowedDomains 6)
+            foreach ($url in $direct) {
+                if ($found -notcontains $url) { $found.Add($url) | Out-Null }
+            }
+            if ($found.Count -ge 4) { break }
+        }
+        if ($found.Count -gt 0) { break }
+    }
+
+    if ($found.Count -eq 0 -and $Device.HardwareId) {
+        try {
+            $catalogUrls = @(Get-CatalogDownloadUrls $Device.HardwareId 2 | Select-Object -ExpandProperty Url -Unique | Select-Object -First 4)
+            foreach ($url in $catalogUrls) {
+                if ($found -notcontains $url) { $found.Add($url) | Out-Null }
+            }
+            if ($catalogUrls.Count -gt 0) { $usedQuery = "Microsoft Catalog: $($Device.HardwareId)" }
+        }
+        catch {}
+    }
+
+    if ($found.Count -gt 0) {
+        $Cache[$key] = [pscustomobject]@{
+            DeviceName = $Device.Name
+            HardwareId = $Device.HardwareId
+            Query = $usedQuery
+            Urls = @($found | Select-Object -First 4)
+            UpdatedAt = (Get-Date -Format "o")
+        }
+        Write-DriverUrlCache $Cache
+    }
+
+    return [pscustomobject]@{
+        Source = "web"
+        Urls = @($found | Select-Object -First 4)
+        Query = $usedQuery
+    }
+}
+
+function Get-SmartDriverDownloadReport {
+    $candidates = @(Get-DriverNeedCandidates | Where-Object { $_.HardwareId } | Select-Object -First 25)
+    $cache = Read-DriverUrlCache
+    $lines = New-Object 'System.Collections.Generic.List[string]'
+    $lines.Add("LUCAS Smart Driver Download Links") | Out-Null
+    $lines.Add(("Generated: {0}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"))) | Out-Null
+    $lines.Add("") | Out-Null
+    $lines.Add("Only direct downloadable files from official vendor/Microsoft domains are shown.") | Out-Null
+    $lines.Add("Cached matches are remembered by hardware ID.") | Out-Null
+    $lines.Add("") | Out-Null
+
+    if ($candidates.Count -eq 0) {
+        $lines.Add("No driver-needed/core components with hardware IDs were found.") | Out-Null
+        return ($lines -join [Environment]::NewLine)
+    }
+
+    foreach ($device in $candidates) {
+        $lines.Add($device.Name) | Out-Null
+        $lines.Add(("  Hardware ID: {0}" -f $device.HardwareId)) | Out-Null
+        $lines.Add(("  Reason: {0}" -f $device.Reason)) | Out-Null
+        $result = Get-SmartDriverUrls $device $cache
+        $lines.Add(("  Search path: {0}" -f $result.Query)) | Out-Null
+        $lines.Add(("  Source: {0}" -f $result.Source)) | Out-Null
+        if ($result.Urls.Count -eq 0) {
+            $lines.Add("  No exact direct download file found.") | Out-Null
+        }
+        else {
+            $n = 1
+            foreach ($url in $result.Urls) {
+                $lines.Add(("  {0}. {1}" -f $n, $url)) | Out-Null
+                $n++
+            }
+        }
+        $lines.Add("") | Out-Null
+    }
+
+    return ($lines -join [Environment]::NewLine)
 }
 
 function Get-ExactCatalogDownloadReport {
@@ -503,13 +783,14 @@ function New-DriverDownloadPack {
     $manifest.Add("LUCAS Downloaded Driver Pack") | Out-Null
     $manifest.Add(("Generated: {0}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"))) | Out-Null
     $manifest.Add("") | Out-Null
-    $manifest.Add("Source: Microsoft Update Catalog direct package URLs matched by hardware ID.") | Out-Null
+    $manifest.Add("Source: Smart official-download resolver matched by hardware ID.") | Out-Null
     $manifest.Add("These packages are downloaded only. Nothing is installed.") | Out-Null
     $manifest.Add("") | Out-Null
 
     $downloaded = 0
     $skipped = 0
     $seenUrls = New-Object 'System.Collections.Generic.HashSet[string]'
+    $cache = Read-DriverUrlCache
 
     foreach ($device in ($candidates | Where-Object { $_.HardwareId } | Select-Object -First 25)) {
         $manifest.Add($device.Name) | Out-Null
@@ -517,9 +798,10 @@ function New-DriverDownloadPack {
         $manifest.Add(("  Hardware ID: {0}" -f $device.HardwareId)) | Out-Null
 
         try {
-            $urls = @(Get-CatalogDownloadUrls $device.HardwareId 2 | Select-Object -ExpandProperty Url -Unique | Select-Object -First 2)
+            $smartResult = Get-SmartDriverUrls $device $cache
+            $urls = @($smartResult.Urls | Select-Object -Unique | Select-Object -First 3)
             if ($urls.Count -eq 0) {
-                $manifest.Add("  No direct Catalog package URL found.") | Out-Null
+                $manifest.Add("  No exact direct download file found.") | Out-Null
                 $skipped++
             }
             foreach ($url in $urls) {
@@ -548,14 +830,14 @@ function New-DriverDownloadPack {
         $manifest.Add("No driver packages were downloaded. Run SCAN LINKS to inspect direct package URL results for this PC.") | Out-Null
     }
     $manifest.Add("Install note") | Out-Null
-    $manifest.Add("- Catalog packages are often .cab files. Install manually through Device Manager or pnputil after confirming the correct device/OS.") | Out-Null
-    $manifest.Add("- For custom PCs, motherboard chipset/LAN/audio pages may still provide newer vendor installers than Microsoft Catalog.") | Out-Null
+    $manifest.Add("- Downloaded files are from cached or freshly discovered official vendor/Microsoft direct URLs.") | Out-Null
+    $manifest.Add("- Packages may be .exe, .msi, .zip, or .cab. Confirm the correct device/OS before installing.") | Out-Null
 
     $manifestPath = Join-Path $folder "download-manifest.txt"
     [System.IO.File]::WriteAllText($manifestPath, ($manifest -join "`r`n"))
     Start-Process $folder | Out-Null
 
-    return "Driver download complete.`r`n`r`nDownloaded packages: $downloaded`r`nSkipped/no direct package: $skipped`r`n`r`nFolder:`r`n$folder`r`n`r`nRead download-manifest.txt before installing. This downloaded Microsoft Catalog packages only; it did not install or run anything."
+    return "Driver download complete.`r`n`r`nDownloaded packages: $downloaded`r`nSkipped/no direct file: $skipped`r`n`r`nFolder:`r`n$folder`r`n`r`nRead download-manifest.txt before installing. This downloaded direct files from official vendor/Microsoft URLs only; it did not install or run anything."
 }
 
 function New-LucasButton {
@@ -647,7 +929,7 @@ $title.Location = New-Object System.Drawing.Point(28, 68)
 $header.Controls.Add($title)
 
 $subtitle = New-Object System.Windows.Forms.Label
-$subtitle.Text = "Scan this custom PC and download matched Microsoft Catalog driver packages."
+$subtitle.Text = "Smart-search exact official driver downloads and remember matches by hardware ID."
 $subtitle.Font = New-Object System.Drawing.Font("Segoe UI", 10.5)
 $subtitle.ForeColor = $lucasMuted
 $subtitle.BackColor = [System.Drawing.Color]::Transparent
@@ -747,7 +1029,7 @@ $output.Font = New-Object System.Drawing.Font("Cascadia Mono", 10)
 $output.BackColor = [System.Drawing.Color]::FromArgb(8, 13, 21)
 $output.ForeColor = [System.Drawing.Color]::FromArgb(215, 228, 236)
 $output.SelectionBackColor = [System.Drawing.Color]::FromArgb(37, 84, 108)
-$output.Text = "Ready.`r`n`r`nChoose SCAN LINKS to show direct driver package URLs only, or DOWNLOAD to save matched Microsoft Catalog driver packages."
+$output.Text = "Ready.`r`n`r`nChoose SCAN LINKS to smart-search exact official driver downloads, or DOWNLOAD to save matched packages."
 $reportShell.Controls.Add($output)
 $output.Add_LinkClicked({ Start-Process $_.LinkText | Out-Null })
 $commandBar.BringToFront()
@@ -776,7 +1058,7 @@ $scanButton.Add_Click({
     $copyButton.Enabled = $false
     $saveButton.Enabled = $false
     $status.Text = "Resolving..."
-    $output.Text = "Finding direct Microsoft Catalog driver package URLs. This can take a minute..."
+    $output.Text = "Searching official sources for exact direct driver downloads. This can take a few minutes..."
     [System.Windows.Forms.Application]::DoEvents()
 
     try {
@@ -798,7 +1080,7 @@ $scanButton.Add_Click({
 
 $downloadButton.Add_Click({
     $answer = [System.Windows.Forms.MessageBox]::Show(
-        "This will download Microsoft Update Catalog driver packages for detected driver-needed/core components into a folder in Downloads. It will not install or run anything.",
+        "This will download exact driver files found from official vendor/Microsoft URLs for detected driver-needed/core components into a folder in Downloads. It will not install or run anything.",
         "Download driver packages?",
         [System.Windows.Forms.MessageBoxButtons]::OKCancel,
         [System.Windows.Forms.MessageBoxIcon]::Information
@@ -810,7 +1092,7 @@ $downloadButton.Add_Click({
     $copyButton.Enabled = $false
     $saveButton.Enabled = $false
     $status.Text = "Downloading..."
-    $output.Text = "Downloading matched Microsoft Catalog driver packages. This can take several minutes..."
+    $output.Text = "Downloading matched official driver files. This can take several minutes..."
     [System.Windows.Forms.Application]::DoEvents()
 
     try {
