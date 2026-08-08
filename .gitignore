@@ -1,0 +1,8 @@
+*.log
+*.tmp
+*.bak
+Driver-Link-Scout-Report*.txt
+Thumbs.db
+Desktop.ini
+.DS_Store
+__MACOSX/
