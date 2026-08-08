@@ -2,7 +2,7 @@
 
 Driver Link Scout is a LUCAS-themed, Windows-only utility that scans the current PC and prints official driver URLs.
 
-It can identify components that likely need driver attention, search official vendor/Microsoft sources for that specific part, and try to resolve direct Microsoft Update Catalog package links for detected hardware IDs. It does not install drivers or change the computer.
+It can identify components that likely need driver attention, search official vendor/Microsoft sources for that specific part, and download Microsoft Update Catalog driver packages for detected hardware IDs. It does not install drivers or change the computer.
 
 ## How to Run
 
@@ -11,10 +11,10 @@ It can identify components that likely need driver attention, search official ve
 3. Press `Inspect` for a read-only hardware and source report.
 4. Press `Needed Links` to identify components that likely need driver attention and search official sources for that specific part.
 5. Press `Catalog` to search Microsoft Update Catalog for direct driver package URLs matching detected hardware IDs.
-6. Press `Prep Pack` to create a folder in Downloads with official driver-source shortcuts and an HTML launch page.
+6. Press `Download` to save matched Microsoft Update Catalog driver packages into a folder in Downloads.
 7. Use `Copy Report` or `Save Report` if you want to share the list.
 
-URLs in the report are clickable. `Needed Links` filters web results to known official Microsoft/OEM/vendor domains. `Catalog` uses Microsoft Update Catalog direct package URLs where available, usually `.cab` files. `Prep Pack` does not install drivers. It prepares official download locations so the user can inspect and download from trusted sources.
+URLs in the report are clickable. `Needed Links` filters web results to known official Microsoft/OEM/vendor domains. `Catalog` uses Microsoft Update Catalog direct package URLs where available, usually `.cab` files. `Download` saves matched Microsoft Catalog packages only; it does not install or run them.
 
 ## What It Checks
 

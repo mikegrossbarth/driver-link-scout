@@ -93,10 +93,10 @@ function Get-ComponentLinks {
     Add-Link $Links "Windows Update Optional Driver Updates" "ms-settings:windowsupdate-optionalupdates" "Open Settings > Windows Update > Advanced options > Optional updates > Driver updates." "Recommended"
     Add-Link $Links "Microsoft Update Catalog" "https://www.catalog.update.microsoft.com/" "Search Microsoft's catalog by hardware ID when the OEM page does not have what you need." "Recommended"
 
-    if ($deviceText -match "intel|ven_8086") {
+    if ($deviceText -match "ven_8086|intel\(r\)|\bintel\b") {
         Add-Link $Links "Intel Driver & Support Assistant" "https://www.intel.com/content/www/us/en/support/detect.html" "Official Intel tool for supported Intel chipset, graphics, Wi-Fi, Bluetooth, and storage drivers." "Install tool"
     }
-    if ($deviceText -match "amd|advanced micro devices|radeon|ven_1002|ven_1022") {
+    if ($deviceText -match "ven_1002|ven_1022|advanced micro devices|amd radeon|amd high definition|amd ryzen") {
         Add-Link $Links "AMD Drivers and Support" "https://www.amd.com/en/support/download/drivers.html" "Official AMD page for Radeon graphics, Ryzen chipset, and AMD auto-detect updates." "Install tool"
     }
     if ($deviceText -match "nvidia|geforce|quadro|rtx|ven_10de") {
@@ -336,7 +336,7 @@ function Get-PrimaryHardwareId {
 function Test-CoreDriverClass {
     param([string]$PnpClass)
 
-    return ($PnpClass -match "Display|Net|MEDIA|HDC|SCSIAdapter|System|Bluetooth|USB|Biometric|Camera|SoftwareComponent")
+    return ($PnpClass -match "Display|Net|MEDIA|HDC|SCSIAdapter|System|Bluetooth|Biometric|Camera")
 }
 
 function Get-DriverNeedCandidates {
@@ -536,44 +536,69 @@ function New-InternetShortcut {
 }
 
 function New-DriverDownloadPack {
-    $scan = Get-DriverScanData
-    $computer = $scan.Computer
-    $links = $scan.Links
-
     $root = Join-Path ([Environment]::GetFolderPath("UserProfile")) "Downloads"
-    $folderName = "LUCAS-Driver-Downloads-{0}" -f (Get-Date -Format "yyyyMMdd-HHmmss")
+    $folderName = "LUCAS-Downloaded-Drivers-{0}" -f (Get-Date -Format "yyyyMMdd-HHmmss")
     $folder = Join-Path $root $folderName
     New-Item -ItemType Directory -Path $folder -Force | Out-Null
 
-    $reportPath = Join-Path $folder "driver-link-report.txt"
-    [System.IO.File]::WriteAllText($reportPath, (Get-DriverReport))
+    $candidates = @(Get-DriverNeedCandidates)
+    $manifest = New-Object 'System.Collections.Generic.List[string]'
+    $manifest.Add("LUCAS Downloaded Driver Pack") | Out-Null
+    $manifest.Add(("Generated: {0}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"))) | Out-Null
+    $manifest.Add("") | Out-Null
+    $manifest.Add("Source: Microsoft Update Catalog direct package URLs matched by hardware ID.") | Out-Null
+    $manifest.Add("These packages are downloaded only. Nothing is installed.") | Out-Null
+    $manifest.Add("") | Out-Null
 
-    $htmlPath = Join-Path $folder "open-driver-sources.html"
-    $html = New-Object 'System.Collections.Generic.List[string]'
-    $html.Add("<!doctype html><html><head><meta charset='utf-8'><title>LUCAS Driver Sources</title>") | Out-Null
-    $html.Add("<style>body{background:#070b12;color:#eaf2f8;font-family:Segoe UI,Arial,sans-serif;margin:32px}a{color:#29de9c}section{border-top:1px solid #273e52;padding-top:16px;margin-top:22px}.tag{color:#071218;background:#ffb153;padding:3px 7px;font-size:12px;font-weight:700}.reason{color:#97a6b8}</style></head><body>") | Out-Null
-    $html.Add("<h1>LUCAS Driver Sources</h1>") | Out-Null
-    $html.Add(("<p>{0} {1}</p>" -f $computer.Manufacturer, $computer.Model)) | Out-Null
-    $html.Add("<p>This pack prepares official places to download drivers. It does not install anything, and it does not use third-party driver updater sites.</p>") | Out-Null
+    $downloaded = 0
+    $skipped = 0
+    $seenUrls = New-Object 'System.Collections.Generic.HashSet[string]'
 
-    $i = 1
-    foreach ($link in $links) {
-        $fileName = "{0:00} - {1}.url" -f $i, (ConvertTo-SafeFileName $link.Title)
-        New-InternetShortcut (Join-Path $folder $fileName) $link.Url
-        $html.Add("<section>") | Out-Null
-        $html.Add(("<div><span class='tag'>{0}</span></div>" -f [System.Security.SecurityElement]::Escape($link.Priority))) | Out-Null
-        $html.Add(("<h2><a href='{0}'>{1}</a></h2>" -f [System.Security.SecurityElement]::Escape($link.Url), [System.Security.SecurityElement]::Escape($link.Title))) | Out-Null
-        $html.Add(("<p class='reason'>{0}</p>" -f [System.Security.SecurityElement]::Escape($link.Reason))) | Out-Null
-        $html.Add("</section>") | Out-Null
-        $i++
+    foreach ($device in ($candidates | Where-Object { $_.HardwareId } | Select-Object -First 25)) {
+        $manifest.Add($device.Name) | Out-Null
+        $manifest.Add(("  Reason: {0}" -f $device.Reason)) | Out-Null
+        $manifest.Add(("  Hardware ID: {0}" -f $device.HardwareId)) | Out-Null
+
+        try {
+            $urls = @(Get-CatalogDownloadUrls $device.HardwareId 2 | Select-Object -ExpandProperty Url -Unique | Select-Object -First 2)
+            if ($urls.Count -eq 0) {
+                $manifest.Add("  No direct Catalog package URL found.") | Out-Null
+                $skipped++
+            }
+            foreach ($url in $urls) {
+                if (-not $seenUrls.Add($url)) { continue }
+                $uri = [Uri]$url
+                $sourceName = [IO.Path]::GetFileName($uri.AbsolutePath)
+                if ([string]::IsNullOrWhiteSpace($sourceName)) { $sourceName = "driver-package.cab" }
+                $safeDevice = ConvertTo-SafeFileName $device.Name
+                $targetName = "{0:00} - {1} - {2}" -f ($downloaded + 1), $safeDevice, $sourceName
+                if ($targetName.Length -gt 150) { $targetName = $targetName.Substring(0, 145) + [IO.Path]::GetExtension($sourceName) }
+                $targetPath = Join-Path $folder $targetName
+                Invoke-WebRequest -Uri $url -OutFile $targetPath -UseBasicParsing -TimeoutSec 300
+                $manifest.Add(("  Downloaded: {0}" -f $targetName)) | Out-Null
+                $manifest.Add(("  URL: {0}" -f $url)) | Out-Null
+                $downloaded++
+            }
+        }
+        catch {
+            $manifest.Add(("  Download failed: {0}" -f $_.Exception.Message)) | Out-Null
+            $skipped++
+        }
+        $manifest.Add("") | Out-Null
     }
-    $html.Add("</body></html>") | Out-Null
-    [System.IO.File]::WriteAllText($htmlPath, ($html -join "`r`n"))
 
+    if ($downloaded -eq 0) {
+        $manifest.Add("No driver packages were downloaded. Run NEEDED LINKS to inspect official web candidates for this PC.") | Out-Null
+    }
+    $manifest.Add("Install note") | Out-Null
+    $manifest.Add("- Catalog packages are often .cab files. Install manually through Device Manager or pnputil after confirming the correct device/OS.") | Out-Null
+    $manifest.Add("- For custom PCs, motherboard chipset/LAN/audio pages may still provide newer vendor installers than Microsoft Catalog.") | Out-Null
+
+    $manifestPath = Join-Path $folder "download-manifest.txt"
+    [System.IO.File]::WriteAllText($manifestPath, ($manifest -join "`r`n"))
     Start-Process $folder | Out-Null
-    Start-Process $htmlPath | Out-Null
 
-    return "Download prep complete.`r`n`r`nCreated folder:`r`n$folder`r`n`r`nInside it you will find:`r`n- driver-link-report.txt`r`n- open-driver-sources.html`r`n- .url shortcuts for every official source`r`n`r`nThis mode prepares official download locations. It does not install drivers or scrape unsigned packages."
+    return "Driver download complete.`r`n`r`nDownloaded packages: $downloaded`r`nSkipped/no direct package: $skipped`r`n`r`nFolder:`r`n$folder`r`n`r`nRead download-manifest.txt before installing. This downloaded Microsoft Catalog packages only; it did not install or run anything."
 }
 
 function New-LucasButton {
@@ -738,7 +763,7 @@ $commandBar.Controls.Add($neededButton)
 $exactButton = New-LucasButton "CATALOG" 276 18 104 $lucasPanel2 $lucasText
 $commandBar.Controls.Add($exactButton)
 
-$downloadButton = New-LucasButton "PREP PACK" 392 18 112 $lucasOrange $lucasBg
+$downloadButton = New-LucasButton "DOWNLOAD" 392 18 112 $lucasOrange $lucasBg
 $commandBar.Controls.Add($downloadButton)
 
 $copyButton = New-LucasButton "COPY" 516 18 78 $lucasPanel2 $lucasText
@@ -771,7 +796,7 @@ $output.Font = New-Object System.Drawing.Font("Cascadia Mono", 10)
 $output.BackColor = [System.Drawing.Color]::FromArgb(8, 13, 21)
 $output.ForeColor = [System.Drawing.Color]::FromArgb(215, 228, 236)
 $output.SelectionBackColor = [System.Drawing.Color]::FromArgb(37, 84, 108)
-$output.Text = "Ready for scan.`r`n`r`nChoose INSPECT for hardware, NEEDED LINKS for official per-component download candidates, CATALOG for direct Microsoft package URLs, or PREP PACK for source shortcuts."
+$output.Text = "Ready for scan.`r`n`r`nChoose INSPECT for hardware, NEEDED LINKS for official per-component candidates, CATALOG for direct package URLs, or DOWNLOAD to save Microsoft Catalog driver packages."
 $reportShell.Controls.Add($output)
 $output.Add_LinkClicked({ Start-Process $_.LinkText | Out-Null })
 $commandBar.BringToFront()
@@ -902,8 +927,8 @@ $exactButton.Add_Click({
 
 $downloadButton.Add_Click({
     $answer = [System.Windows.Forms.MessageBox]::Show(
-        "This will scan the PC, create a folder in Downloads, and open an HTML page with official driver download sources. It will not install drivers or use third-party updater sites.",
-        "Prep driver downloads?",
+        "This will download Microsoft Update Catalog driver packages for detected driver-needed/core components into a folder in Downloads. It will not install or run anything.",
+        "Download driver packages?",
         [System.Windows.Forms.MessageBoxButtons]::OKCancel,
         [System.Windows.Forms.MessageBoxIcon]::Information
     )
@@ -915,20 +940,20 @@ $downloadButton.Add_Click({
     $downloadButton.Enabled = $false
     $copyButton.Enabled = $false
     $saveButton.Enabled = $false
-    $status.Text = "Preparing..."
-    $output.Text = "Preparing official driver download sources..."
+    $status.Text = "Downloading..."
+    $output.Text = "Downloading matched Microsoft Catalog driver packages. This can take several minutes..."
     [System.Windows.Forms.Application]::DoEvents()
 
     try {
         $result = New-DriverDownloadPack
         $output.Text = $result
-        $status.Text = "Prep complete"
+        $status.Text = "Download complete"
         $copyButton.Enabled = $true
         $saveButton.Enabled = $true
     }
     catch {
-        $output.Text = "Download prep failed:`r`n`r`n$($_.Exception.Message)"
-        $status.Text = "Prep failed"
+        $output.Text = "Driver download failed:`r`n`r`n$($_.Exception.Message)"
+        $status.Text = "Download failed"
     }
     finally {
         $scanButton.Enabled = $true
