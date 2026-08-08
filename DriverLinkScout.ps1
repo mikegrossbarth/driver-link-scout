@@ -418,6 +418,12 @@ $main.Padding = New-Object System.Windows.Forms.Padding(24, 22, 24, 22)
 $main.BackColor = $lucasBg
 $form.Controls.Add($main)
 
+$reportShell = New-Object System.Windows.Forms.Panel
+$reportShell.Dock = "Fill"
+$reportShell.Padding = New-Object System.Windows.Forms.Padding(1)
+$reportShell.BackColor = [System.Drawing.Color]::FromArgb(39, 62, 82)
+$main.Controls.Add($reportShell)
+
 $commandBar = New-Object System.Windows.Forms.Panel
 $commandBar.Dock = "Top"
 $commandBar.Height = 76
@@ -448,12 +454,6 @@ $hint.Location = New-Object System.Drawing.Point(690, 28)
 $hint.Anchor = "Top,Left"
 $commandBar.Controls.Add($hint)
 
-$reportShell = New-Object System.Windows.Forms.Panel
-$reportShell.Dock = "Fill"
-$reportShell.Padding = New-Object System.Windows.Forms.Padding(1)
-$reportShell.BackColor = [System.Drawing.Color]::FromArgb(39, 62, 82)
-$main.Controls.Add($reportShell)
-
 $output = New-Object System.Windows.Forms.RichTextBox
 $output.BorderStyle = "None"
 $output.Dock = "Fill"
@@ -468,6 +468,8 @@ $output.SelectionBackColor = [System.Drawing.Color]::FromArgb(37, 84, 108)
 $output.Text = "Ready for scan.`r`n`r`nChoose RUN INSPECTION for a read-only list, or PREP DOWNLOADS to create a Downloads folder with official source shortcuts."
 $reportShell.Controls.Add($output)
 $commandBar.BringToFront()
+$main.Controls.SetChildIndex($commandBar, 0)
+$form.Controls.SetChildIndex($header, 0)
 $header.BringToFront()
 
 $scanButton.Add_Click({

@@ -7,7 +7,7 @@ It does not download drivers. It does not install drivers. It does not change th
 ## How to Run
 
 1. Open this folder on the Windows computer you want to scan.
-2. Double-click `Driver Link Scout.cmd`.
+2. Double-click `Driver Link Scout.vbs`.
 3. Press `Run Inspection` for a read-only report.
 4. Press `Prep Downloads` to create a folder in Downloads with official driver-source shortcuts and an HTML launch page.
 5. Use `Copy Report` or `Save Report` if you want to share the list.
@@ -42,6 +42,6 @@ Then use component makers like Intel, AMD, NVIDIA, or Realtek.
 
 ## Troubleshooting
 
-If the app does not open, right-click `Driver Link Scout.cmd` and choose `Run as administrator`.
+If the app does not open, double-click `Driver Link Scout.cmd` to launch it with a visible troubleshooting terminal.
 
 If Windows SmartScreen warns about the file, choose `More info` only if you trust the person who gave you this folder.
