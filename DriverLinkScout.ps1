@@ -320,6 +320,201 @@ function Get-ExactCatalogDownloadReport {
     return ($lines -join [Environment]::NewLine)
 }
 
+function Get-PrimaryHardwareId {
+    param($Device)
+
+    $hardwareIds = $Device.HardwareID
+    if ($null -eq $hardwareIds) { return "" }
+    foreach ($id in $hardwareIds) {
+        if ($id -match "^(PCI\\VEN_[0-9A-F]{4}&DEV_[0-9A-F]{4})") { return $Matches[1] }
+        if ($id -match "^(USB\\VID_[0-9A-F]{4}&PID_[0-9A-F]{4})") { return $Matches[1] }
+        if ($id -match "^(HDAUDIO\\FUNC_[0-9A-F]{2}&VEN_[0-9A-F]{4}&DEV_[0-9A-F]{4})") { return $Matches[1] }
+    }
+    return [string]($hardwareIds | Select-Object -First 1)
+}
+
+function Test-CoreDriverClass {
+    param([string]$PnpClass)
+
+    return ($PnpClass -match "Display|Net|MEDIA|HDC|SCSIAdapter|System|Bluetooth|USB|Biometric|Camera|SoftwareComponent")
+}
+
+function Get-DriverNeedCandidates {
+    $pnpDevices = Get-CimInstance Win32_PnPEntity | Where-Object {
+        $_.PNPDeviceID -match "^(PCI|USB|HDAUDIO|ACPI|BTHENUM)\\" -and
+        $_.Name -and
+        $_.Name -notmatch "Generic volume|USB Composite Device|Root Hub|Microsoft|WAN Miniport|Volume Manager"
+    }
+    $signedDrivers = Get-CimInstance Win32_PnPSignedDriver
+    $driverByDevice = @{}
+    foreach ($driver in $signedDrivers) {
+        if ($driver.DeviceID) { $driverByDevice[$driver.DeviceID] = $driver }
+    }
+
+    $candidates = New-Object 'System.Collections.Generic.List[object]'
+    foreach ($device in $pnpDevices) {
+        $driver = $driverByDevice[$device.PNPDeviceID]
+        $problem = ($device.ConfigManagerErrorCode -and $device.ConfigManagerErrorCode -ne 0)
+        $missingDriver = ($null -eq $driver -or [string]::IsNullOrWhiteSpace($driver.DriverVersion) -or [string]::IsNullOrWhiteSpace($driver.DriverProviderName))
+        $coreClass = Test-CoreDriverClass $device.PNPClass
+        if (-not ($problem -or $missingDriver -or $coreClass)) { continue }
+
+        $reason = "Core driver candidate"
+        if ($problem) { $reason = "Device Manager problem code $($device.ConfigManagerErrorCode)" }
+        elseif ($missingDriver) { $reason = "Missing or incomplete driver metadata" }
+
+        $candidates.Add([pscustomobject]@{
+            Name = $device.Name
+            Manufacturer = $device.Manufacturer
+            PnpClass = $device.PNPClass
+            HardwareId = (Get-PrimaryHardwareId $device)
+            PnpDeviceId = $device.PNPDeviceID
+            Reason = $reason
+            DriverProvider = $driver.DriverProviderName
+            DriverVersion = $driver.DriverVersion
+            DriverDate = $driver.DriverDate
+        }) | Out-Null
+    }
+
+    return @($candidates | Sort-Object Reason, PnpClass, Name)
+}
+
+function Get-OfficialSearchDomains {
+    return @(
+        "catalog.update.microsoft.com",
+        "download.windowsupdate.com",
+        "intel.com",
+        "amd.com",
+        "nvidia.com",
+        "dell.com",
+        "lenovo.com",
+        "hp.com",
+        "asus.com",
+        "msi.com",
+        "gigabyte.com",
+        "realtek.com",
+        "qualcomm.com",
+        "acer.com",
+        "microsoft.com"
+    )
+}
+
+function Test-OfficialDriverUrl {
+    param([string]$Url)
+
+    if ([string]::IsNullOrWhiteSpace($Url)) { return $false }
+    try {
+        $hostName = ([Uri]$Url).Host.ToLowerInvariant()
+    }
+    catch {
+        return $false
+    }
+
+    foreach ($domain in (Get-OfficialSearchDomains)) {
+        if ($hostName -eq $domain -or $hostName.EndsWith("." + $domain)) { return $true }
+    }
+    return $false
+}
+
+function Get-OfficialWebSearchUrls {
+    param(
+        [string]$Query,
+        [int]$MaxResults = 5
+    )
+
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $searchUrl = "https://duckduckgo.com/html/?q=$(Encode-Query $Query)"
+    $response = Invoke-WebRequest -Uri $searchUrl -UseBasicParsing -TimeoutSec 25 -Headers @{ "User-Agent" = "Mozilla/5.0" }
+    $urls = New-Object 'System.Collections.Generic.List[string]'
+    $matches = [regex]::Matches($response.Content, 'href="(?<url>[^"]+)"')
+    foreach ($match in $matches) {
+        $url = $match.Groups["url"].Value -replace "&amp;", "&"
+        if ($url -match "uddg=([^&]+)") {
+            $url = [Uri]::UnescapeDataString($Matches[1])
+        }
+        if ($url -notmatch "^https?://") { continue }
+        if (-not (Test-OfficialDriverUrl $url)) { continue }
+        if ($url -notmatch "(driver|download|support|catalog|detect|update)") { continue }
+        if ($urls -notcontains $url) { $urls.Add($url) | Out-Null }
+        if ($urls.Count -ge $MaxResults) { break }
+    }
+    return @($urls)
+}
+
+function Get-NeededDriverDownloadReport {
+    $scan = Get-DriverScanData
+    $computer = $scan.Computer
+    $candidates = @(Get-DriverNeedCandidates)
+    $lines = New-Object 'System.Collections.Generic.List[string]'
+    $lines.Add("LUCAS Needed Driver Download Links") | Out-Null
+    $lines.Add(("Generated: {0}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"))) | Out-Null
+    $lines.Add("") | Out-Null
+    $lines.Add(("Computer: {0} {1}" -f $computer.Manufacturer, $computer.Model)) | Out-Null
+    $lines.Add("This report focuses on devices with driver problems, missing driver metadata, or core hardware classes that commonly need vendor drivers.") | Out-Null
+    $lines.Add("Click any URL to open it.") | Out-Null
+    $lines.Add("") | Out-Null
+
+    if ($candidates.Count -eq 0) {
+        $lines.Add("No obvious driver-needed devices were found.") | Out-Null
+        return ($lines -join [Environment]::NewLine)
+    }
+
+    $index = 1
+    foreach ($device in ($candidates | Select-Object -First 25)) {
+        $lines.Add(("{0}. {1}" -f $index, $device.Name)) | Out-Null
+        $lines.Add(("   Class: {0}" -f $device.PnpClass)) | Out-Null
+        $lines.Add(("   Reason: {0}" -f $device.Reason)) | Out-Null
+        $lines.Add(("   Current driver: {0} {1}" -f $device.DriverProvider, $device.DriverVersion)) | Out-Null
+        if ($device.HardwareId) { $lines.Add(("   Hardware ID: {0}" -f $device.HardwareId)) | Out-Null }
+
+        if ($device.HardwareId) {
+            $lines.Add("   Microsoft Catalog direct package URLs:") | Out-Null
+            try {
+                $catalogMatches = @(Get-CatalogDownloadUrls $device.HardwareId 2)
+                if ($catalogMatches.Count -eq 0) {
+                    $lines.Add(("     https://www.catalog.update.microsoft.com/Search.aspx?q={0}" -f (Encode-Query $device.HardwareId))) | Out-Null
+                }
+                else {
+                    foreach ($match in ($catalogMatches | Select-Object -First 4)) {
+                        $lines.Add(("     {0}" -f $match.Url)) | Out-Null
+                    }
+                }
+            }
+            catch {
+                $lines.Add(("     https://www.catalog.update.microsoft.com/Search.aspx?q={0}" -f (Encode-Query $device.HardwareId))) | Out-Null
+            }
+        }
+
+        $queryParts = @($computer.Manufacturer, $computer.Model, $device.Name, $device.HardwareId, "driver download official")
+        $query = (($queryParts | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join " ")
+        $lines.Add("   Official web candidates:") | Out-Null
+        try {
+            $webUrls = @(Get-OfficialWebSearchUrls $query 5)
+            if ($webUrls.Count -eq 0) {
+                $lines.Add(("     https://www.google.com/search?q={0}" -f (Encode-Query $query))) | Out-Null
+            }
+            else {
+                foreach ($url in $webUrls) {
+                    $lines.Add(("     {0}" -f $url)) | Out-Null
+                }
+            }
+        }
+        catch {
+            $lines.Add(("     https://www.google.com/search?q={0}" -f (Encode-Query $query))) | Out-Null
+        }
+
+        $lines.Add("") | Out-Null
+        $index++
+    }
+
+    $lines.Add("Safety filter") | Out-Null
+    $lines.Add("- Web results are filtered to official vendor/Microsoft domains only.") | Out-Null
+    $lines.Add("- Direct Microsoft package URLs are usually .cab files and may need manual installation through Device Manager or pnputil.") | Out-Null
+    $lines.Add("- OEM laptop/prebuilt model pages can still be the best match when available.") | Out-Null
+
+    return ($lines -join [Environment]::NewLine)
+}
+
 function ConvertTo-SafeFileName {
     param([string]$Value)
     $safe = $Value -replace '[\\/:*?"<>|]', '-'
@@ -534,20 +729,23 @@ $commandBar.Anchor = "Top,Left,Right"
 $commandBar.BackColor = $lucasPanel
 $main.Controls.Add($commandBar)
 
-$scanButton = New-LucasButton "INSPECT" 18 18 112 $lucasGreen $lucasBg
+$scanButton = New-LucasButton "INSPECT" 18 18 92 $lucasGreen $lucasBg
 $commandBar.Controls.Add($scanButton)
 
-$exactButton = New-LucasButton "EXACT LINKS" 142 18 132 $lucasBlue $lucasBg
+$neededButton = New-LucasButton "NEEDED LINKS" 122 18 142 $lucasBlue $lucasBg
+$commandBar.Controls.Add($neededButton)
+
+$exactButton = New-LucasButton "CATALOG" 276 18 104 $lucasPanel2 $lucasText
 $commandBar.Controls.Add($exactButton)
 
-$downloadButton = New-LucasButton "PREP PACK" 286 18 118 $lucasOrange $lucasBg
+$downloadButton = New-LucasButton "PREP PACK" 392 18 112 $lucasOrange $lucasBg
 $commandBar.Controls.Add($downloadButton)
 
-$copyButton = New-LucasButton "COPY" 416 18 94 $lucasPanel2 $lucasText
+$copyButton = New-LucasButton "COPY" 516 18 78 $lucasPanel2 $lucasText
 $copyButton.Enabled = $false
 $commandBar.Controls.Add($copyButton)
 
-$saveButton = New-LucasButton "SAVE" 522 18 94 $lucasPanel2 $lucasText
+$saveButton = New-LucasButton "SAVE" 606 18 78 $lucasPanel2 $lucasText
 $saveButton.Enabled = $false
 $commandBar.Controls.Add($saveButton)
 
@@ -557,7 +755,7 @@ $hint.Font = New-Object System.Drawing.Font("Segoe UI", 9.5)
 $hint.ForeColor = $lucasMuted
 $hint.AutoSize = $false
 $hint.Size = New-Object System.Drawing.Size(180, 24)
-$hint.Location = New-Object System.Drawing.Point(636, 28)
+$hint.Location = New-Object System.Drawing.Point(704, 28)
 $hint.Anchor = "Top,Left"
 $commandBar.Controls.Add($hint)
 
@@ -573,7 +771,7 @@ $output.Font = New-Object System.Drawing.Font("Cascadia Mono", 10)
 $output.BackColor = [System.Drawing.Color]::FromArgb(8, 13, 21)
 $output.ForeColor = [System.Drawing.Color]::FromArgb(215, 228, 236)
 $output.SelectionBackColor = [System.Drawing.Color]::FromArgb(37, 84, 108)
-$output.Text = "Ready for scan.`r`n`r`nChoose INSPECT for the hardware report, EXACT LINKS for direct Microsoft Catalog package URLs, or PREP PACK for source shortcuts."
+$output.Text = "Ready for scan.`r`n`r`nChoose INSPECT for hardware, NEEDED LINKS for official per-component download candidates, CATALOG for direct Microsoft package URLs, or PREP PACK for source shortcuts."
 $reportShell.Controls.Add($output)
 $output.Add_LinkClicked({ Start-Process $_.LinkText | Out-Null })
 $commandBar.BringToFront()
@@ -598,6 +796,7 @@ Update-LucasLayout
 
 $scanButton.Add_Click({
     $scanButton.Enabled = $false
+    $neededButton.Enabled = $false
     $exactButton.Enabled = $false
     $downloadButton.Enabled = $false
     $copyButton.Enabled = $false
@@ -619,6 +818,45 @@ $scanButton.Add_Click({
     }
     finally {
         $scanButton.Enabled = $true
+        $neededButton.Enabled = $true
+        $exactButton.Enabled = $true
+        $downloadButton.Enabled = $true
+    }
+})
+
+$neededButton.Add_Click({
+    $answer = [System.Windows.Forms.MessageBox]::Show(
+        "This will identify components that likely need driver attention and search the web for official per-component download candidates. It filters to known Microsoft/OEM/vendor domains and will not download or install anything.",
+        "Search needed driver links?",
+        [System.Windows.Forms.MessageBoxButtons]::OKCancel,
+        [System.Windows.Forms.MessageBoxIcon]::Information
+    )
+    if ($answer -ne [System.Windows.Forms.DialogResult]::OK) { return }
+
+    $scanButton.Enabled = $false
+    $neededButton.Enabled = $false
+    $exactButton.Enabled = $false
+    $downloadButton.Enabled = $false
+    $copyButton.Enabled = $false
+    $saveButton.Enabled = $false
+    $status.Text = "Searching..."
+    $output.Text = "Identifying driver-needed components and searching official sources. This can take a few minutes..."
+    [System.Windows.Forms.Application]::DoEvents()
+
+    try {
+        $report = Get-NeededDriverDownloadReport
+        $output.Text = $report
+        $status.Text = "Needed links ready"
+        $copyButton.Enabled = $true
+        $saveButton.Enabled = $true
+    }
+    catch {
+        $output.Text = "Needed-link search failed:`r`n`r`n$($_.Exception.Message)"
+        $status.Text = "Search failed"
+    }
+    finally {
+        $scanButton.Enabled = $true
+        $neededButton.Enabled = $true
         $exactButton.Enabled = $true
         $downloadButton.Enabled = $true
     }
@@ -634,6 +872,7 @@ $exactButton.Add_Click({
     if ($answer -ne [System.Windows.Forms.DialogResult]::OK) { return }
 
     $scanButton.Enabled = $false
+    $neededButton.Enabled = $false
     $exactButton.Enabled = $false
     $downloadButton.Enabled = $false
     $copyButton.Enabled = $false
@@ -655,6 +894,7 @@ $exactButton.Add_Click({
     }
     finally {
         $scanButton.Enabled = $true
+        $neededButton.Enabled = $true
         $exactButton.Enabled = $true
         $downloadButton.Enabled = $true
     }
@@ -670,6 +910,7 @@ $downloadButton.Add_Click({
     if ($answer -ne [System.Windows.Forms.DialogResult]::OK) { return }
 
     $scanButton.Enabled = $false
+    $neededButton.Enabled = $false
     $exactButton.Enabled = $false
     $downloadButton.Enabled = $false
     $copyButton.Enabled = $false
@@ -691,6 +932,7 @@ $downloadButton.Add_Click({
     }
     finally {
         $scanButton.Enabled = $true
+        $neededButton.Enabled = $true
         $exactButton.Enabled = $true
         $downloadButton.Enabled = $true
     }

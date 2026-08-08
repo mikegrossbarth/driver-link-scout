@@ -2,18 +2,19 @@
 
 Driver Link Scout is a LUCAS-themed, Windows-only utility that scans the current PC and prints official driver URLs.
 
-It can also try to resolve direct Microsoft Update Catalog package links for detected hardware IDs. It does not install drivers or change the computer.
+It can identify components that likely need driver attention, search official vendor/Microsoft sources for that specific part, and try to resolve direct Microsoft Update Catalog package links for detected hardware IDs. It does not install drivers or change the computer.
 
 ## How to Run
 
 1. Open this folder on the Windows computer you want to scan.
 2. Double-click `Driver Link Scout.vbs`.
 3. Press `Inspect` for a read-only hardware and source report.
-4. Press `Exact Links` to search Microsoft Update Catalog for direct driver package URLs matching detected hardware IDs.
-5. Press `Prep Pack` to create a folder in Downloads with official driver-source shortcuts and an HTML launch page.
-6. Use `Copy Report` or `Save Report` if you want to share the list.
+4. Press `Needed Links` to identify components that likely need driver attention and search official sources for that specific part.
+5. Press `Catalog` to search Microsoft Update Catalog for direct driver package URLs matching detected hardware IDs.
+6. Press `Prep Pack` to create a folder in Downloads with official driver-source shortcuts and an HTML launch page.
+7. Use `Copy Report` or `Save Report` if you want to share the list.
 
-URLs in the report are clickable. `Exact Links` uses Microsoft Update Catalog direct package URLs where available, usually `.cab` files. `Prep Pack` does not install drivers. It prepares official download locations so the user can inspect and download from trusted sources.
+URLs in the report are clickable. `Needed Links` filters web results to known official Microsoft/OEM/vendor domains. `Catalog` uses Microsoft Update Catalog direct package URLs where available, usually `.cab` files. `Prep Pack` does not install drivers. It prepares official download locations so the user can inspect and download from trusted sources.
 
 ## What It Checks
 
