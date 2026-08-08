@@ -1,6 +1,6 @@
 # Driver Link Scout
 
-Driver Link Scout is a LUCAS-themed, Windows-only utility that scans the current PC and prints official driver URLs.
+Driver Link Scout is a Windows-only utility that scans the current PC and prints official driver URLs.
 
 It identifies driver-needed/core components, searches official vendor/Microsoft pages for exact direct driver files, and remembers matches by hardware ID. It does not install drivers or change the computer.
 
@@ -26,7 +26,7 @@ URLs in the report are clickable. `Download` saves matched official vendor/Micro
 
 ## Download Source
 
-Driver Link Scout searches Google/DuckDuckGo results, crawls official vendor/Microsoft pages, extracts direct `.exe`, `.msi`, `.zip`, or `.cab` files, and caches matches in `%LOCALAPPDATA%\LUCAS Driver Link Scout\driver-url-cache.json`.
+Driver Link Scout searches Google/DuckDuckGo results, crawls official vendor/Microsoft pages, extracts direct `.exe`, `.msi`, `.zip`, or `.cab` files, and caches matches in `%LOCALAPPDATA%\Driver Link Scout\driver-url-cache.json`.
 
 ## Optional AI Resolver
 
@@ -39,6 +39,12 @@ PowerShell:
 ```
 
 Restart the app after setting the key.
+
+Optional model override:
+
+```powershell
+[Environment]::SetEnvironmentVariable("DRIVER_LINK_SCOUT_OPENAI_MODEL", "gpt-5.6-terra", "User")
+```
 
 ## Safety Notes
 

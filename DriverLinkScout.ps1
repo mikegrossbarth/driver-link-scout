@@ -228,7 +228,7 @@ function Get-CatalogDownloadUrls {
 }
 
 function Get-CachePath {
-    $folder = Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) "LUCAS Driver Link Scout"
+    $folder = Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) "Driver Link Scout"
     New-Item -ItemType Directory -Path $folder -Force | Out-Null
     return (Join-Path $folder "driver-url-cache.json")
 }
@@ -416,7 +416,7 @@ function Get-AiDriverUrls {
     }
     if ([string]::IsNullOrWhiteSpace($apiKey)) { return @() }
 
-    $model = $env:LUCAS_OPENAI_MODEL
+    $model = $env:DRIVER_LINK_SCOUT_OPENAI_MODEL
     if ([string]::IsNullOrWhiteSpace($model)) { $model = "gpt-5.6-terra" }
 
     $prompt = @"
@@ -558,7 +558,7 @@ function Get-SmartDriverDownloadReport {
     $candidates = @(Get-DriverNeedCandidates | Where-Object { $_.HardwareId } | Select-Object -First 25)
     $cache = Read-DriverUrlCache
     $lines = New-Object 'System.Collections.Generic.List[string]'
-    $lines.Add("LUCAS Smart Driver Download Links") | Out-Null
+    $lines.Add("Driver Link Scout Smart Driver Download Links") | Out-Null
     $lines.Add(("Generated: {0}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"))) | Out-Null
     $lines.Add("") | Out-Null
     $lines.Add("Only direct downloadable files from official vendor/Microsoft domains are shown.") | Out-Null
@@ -596,7 +596,7 @@ function Get-SmartDriverDownloadReport {
 function Get-ExactCatalogDownloadReport {
     $candidates = @(Get-DriverNeedCandidates | Where-Object { $_.HardwareId } | Select-Object -First 25)
     $lines = New-Object 'System.Collections.Generic.List[string]'
-    $lines.Add("LUCAS Exact Driver Download Links") | Out-Null
+    $lines.Add("Driver Link Scout Exact Driver Download Links") | Out-Null
     $lines.Add(("Generated: {0}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"))) | Out-Null
     $lines.Add("") | Out-Null
     $lines.Add("Source: Microsoft Update Catalog direct package URLs for driver-needed/core components only.") | Out-Null
@@ -769,7 +769,7 @@ function Get-NeededDriverDownloadReport {
     $computer = $scan.Computer
     $candidates = @(Get-DriverNeedCandidates)
     $lines = New-Object 'System.Collections.Generic.List[string]'
-    $lines.Add("LUCAS Needed Driver Download Links") | Out-Null
+    $lines.Add("Driver Link Scout Needed Driver Download Links") | Out-Null
     $lines.Add(("Generated: {0}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"))) | Out-Null
     $lines.Add("") | Out-Null
     $lines.Add(("Computer: {0} {1}" -f $computer.Manufacturer, $computer.Model)) | Out-Null
@@ -860,13 +860,13 @@ function New-InternetShortcut {
 
 function New-DriverDownloadPack {
     $root = Join-Path ([Environment]::GetFolderPath("UserProfile")) "Downloads"
-    $folderName = "LUCAS-Downloaded-Drivers-{0}" -f (Get-Date -Format "yyyyMMdd-HHmmss")
+    $folderName = "Driver-Link-Scout-Downloaded-Drivers-{0}" -f (Get-Date -Format "yyyyMMdd-HHmmss")
     $folder = Join-Path $root $folderName
     New-Item -ItemType Directory -Path $folder -Force | Out-Null
 
     $candidates = @(Get-DriverNeedCandidates)
     $manifest = New-Object 'System.Collections.Generic.List[string]'
-    $manifest.Add("LUCAS Downloaded Driver Pack") | Out-Null
+    $manifest.Add("Driver Link Scout Downloaded Driver Pack") | Out-Null
     $manifest.Add(("Generated: {0}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"))) | Out-Null
     $manifest.Add("") | Out-Null
     $manifest.Add("Source: Smart official-download resolver matched by hardware ID.") | Out-Null
@@ -926,7 +926,7 @@ function New-DriverDownloadPack {
     return "Driver download complete.`r`n`r`nDownloaded packages: $downloaded`r`nSkipped/no direct file: $skipped`r`n`r`nFolder:`r`n$folder`r`n`r`nRead download-manifest.txt before installing. This downloaded direct files from official vendor/Microsoft URLs only; it did not install or run anything."
 }
 
-function New-LucasButton {
+function New-AppButton {
     param(
         [string]$Text,
         [int]$X,
@@ -957,28 +957,28 @@ function New-LucasButton {
     return $button
 }
 
-$lucasBg = [System.Drawing.Color]::FromArgb(7, 11, 18)
-$lucasPanel = [System.Drawing.Color]::FromArgb(14, 20, 31)
-$lucasPanel2 = [System.Drawing.Color]::FromArgb(18, 27, 42)
-$lucasText = [System.Drawing.Color]::FromArgb(234, 242, 248)
-$lucasMuted = [System.Drawing.Color]::FromArgb(151, 166, 184)
-$lucasGreen = [System.Drawing.Color]::FromArgb(41, 222, 156)
-$lucasBlue = [System.Drawing.Color]::FromArgb(64, 152, 255)
-$lucasOrange = [System.Drawing.Color]::FromArgb(255, 177, 83)
+$appBg = [System.Drawing.Color]::FromArgb(7, 11, 18)
+$appPanel = [System.Drawing.Color]::FromArgb(14, 20, 31)
+$appPanel2 = [System.Drawing.Color]::FromArgb(18, 27, 42)
+$appText = [System.Drawing.Color]::FromArgb(234, 242, 248)
+$appMuted = [System.Drawing.Color]::FromArgb(151, 166, 184)
+$appGreen = [System.Drawing.Color]::FromArgb(41, 222, 156)
+$appBlue = [System.Drawing.Color]::FromArgb(64, 152, 255)
+$appOrange = [System.Drawing.Color]::FromArgb(255, 177, 83)
 
 $form = New-Object System.Windows.Forms.Form
-$form.Text = "LUCAS Driver Link Scout"
+$form.Text = "Driver Link Scout"
 $form.Size = New-Object System.Drawing.Size(1080, 760)
 $form.StartPosition = "CenterScreen"
 $form.MinimumSize = New-Object System.Drawing.Size(860, 620)
-$form.BackColor = $lucasBg
-$form.ForeColor = $lucasText
+$form.BackColor = $appBg
+$form.ForeColor = $appText
 
 $header = New-Object System.Windows.Forms.Panel
 $header.Location = New-Object System.Drawing.Point(0, 0)
 $header.Size = New-Object System.Drawing.Size($form.ClientSize.Width, 172)
 $header.Anchor = "Top,Left,Right"
-$header.BackColor = $lucasPanel
+$header.BackColor = $appPanel
 $header.Add_Paint({
     param($sender, $event)
     $rect = New-Object System.Drawing.Rectangle(0, 0, $sender.Width, $sender.Height)
@@ -990,16 +990,16 @@ $header.Add_Paint({
     )
     $event.Graphics.FillRectangle($brush, $rect)
     $brush.Dispose()
-    $pen = New-Object System.Drawing.Pen($lucasGreen, 3)
+    $pen = New-Object System.Drawing.Pen($appGreen, 3)
     $event.Graphics.DrawLine($pen, 0, $sender.Height - 2, $sender.Width, $sender.Height - 2)
     $pen.Dispose()
 })
 $form.Controls.Add($header)
 
 $brand = New-Object System.Windows.Forms.Label
-$brand.Text = "LUCAS"
+$brand.Text = "DLS"
 $brand.Font = New-Object System.Drawing.Font("Segoe UI Black", 28, [System.Drawing.FontStyle]::Bold)
-$brand.ForeColor = $lucasGreen
+$brand.ForeColor = $appGreen
 $brand.BackColor = [System.Drawing.Color]::Transparent
 $brand.AutoSize = $true
 $brand.Location = New-Object System.Drawing.Point(28, 22)
@@ -1008,7 +1008,7 @@ $header.Controls.Add($brand)
 $title = New-Object System.Windows.Forms.Label
 $title.Text = "Driver Link Scout"
 $title.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 24)
-$title.ForeColor = $lucasText
+$title.ForeColor = $appText
 $title.BackColor = [System.Drawing.Color]::Transparent
 $title.AutoSize = $true
 $title.Location = New-Object System.Drawing.Point(28, 68)
@@ -1017,7 +1017,7 @@ $header.Controls.Add($title)
 $subtitle = New-Object System.Windows.Forms.Label
 $subtitle.Text = "Smart-search exact official driver downloads and remember matches by hardware ID."
 $subtitle.Font = New-Object System.Drawing.Font("Segoe UI", 10.5)
-$subtitle.ForeColor = $lucasMuted
+$subtitle.ForeColor = $appMuted
 $subtitle.BackColor = [System.Drawing.Color]::Transparent
 $subtitle.AutoSize = $true
 $subtitle.Location = New-Object System.Drawing.Point(31, 112)
@@ -1026,8 +1026,8 @@ $header.Controls.Add($subtitle)
 $signal = New-Object System.Windows.Forms.Label
 $signal.Text = "INSPECTION MODE"
 $signal.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 9)
-$signal.ForeColor = $lucasBg
-$signal.BackColor = $lucasOrange
+$signal.ForeColor = $appBg
+$signal.BackColor = $appOrange
 $signal.TextAlign = "MiddleCenter"
 $signal.Size = New-Object System.Drawing.Size(142, 28)
 $signal.Anchor = "Top,Right"
@@ -1044,7 +1044,7 @@ $header.Controls.Add($statusShell)
 $statusTag = New-Object System.Windows.Forms.Label
 $statusTag.Text = "LIVE"
 $statusTag.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 8)
-$statusTag.ForeColor = $lucasGreen
+$statusTag.ForeColor = $appGreen
 $statusTag.AutoSize = $true
 $statusTag.Location = New-Object System.Drawing.Point(12, 9)
 $statusShell.Controls.Add($statusTag)
@@ -1052,7 +1052,7 @@ $statusShell.Controls.Add($statusTag)
 $status = New-Object System.Windows.Forms.Label
 $status.Text = "Ready"
 $status.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 9.5)
-$status.ForeColor = $lucasText
+$status.ForeColor = $appText
 $status.AutoSize = $true
 $status.Location = New-Object System.Drawing.Point(36, 8)
 $statusShell.Controls.Add($status)
@@ -1061,7 +1061,7 @@ $main = New-Object System.Windows.Forms.Panel
 $main.Location = New-Object System.Drawing.Point(24, 194)
 $main.Size = New-Object System.Drawing.Size(($form.ClientSize.Width - 48), ($form.ClientSize.Height - 216))
 $main.Anchor = "Top,Bottom,Left,Right"
-$main.BackColor = $lucasBg
+$main.BackColor = $appBg
 $form.Controls.Add($main)
 
 $reportShell = New-Object System.Windows.Forms.Panel
@@ -1076,27 +1076,27 @@ $commandBar = New-Object System.Windows.Forms.Panel
 $commandBar.Location = New-Object System.Drawing.Point(0, 0)
 $commandBar.Size = New-Object System.Drawing.Size($main.ClientSize.Width, 76)
 $commandBar.Anchor = "Top,Left,Right"
-$commandBar.BackColor = $lucasPanel
+$commandBar.BackColor = $appPanel
 $main.Controls.Add($commandBar)
 
-$scanButton = New-LucasButton "SCAN LINKS" 18 18 132 $lucasGreen $lucasBg
+$scanButton = New-AppButton "SCAN LINKS" 18 18 132 $appGreen $appBg
 $commandBar.Controls.Add($scanButton)
 
-$downloadButton = New-LucasButton "DOWNLOAD" 164 18 132 $lucasOrange $lucasBg
+$downloadButton = New-AppButton "DOWNLOAD" 164 18 132 $appOrange $appBg
 $commandBar.Controls.Add($downloadButton)
 
-$copyButton = New-LucasButton "COPY" 310 18 94 $lucasPanel2 $lucasText
+$copyButton = New-AppButton "COPY" 310 18 94 $appPanel2 $appText
 $copyButton.Enabled = $false
 $commandBar.Controls.Add($copyButton)
 
-$saveButton = New-LucasButton "SAVE" 418 18 94 $lucasPanel2 $lucasText
+$saveButton = New-AppButton "SAVE" 418 18 94 $appPanel2 $appText
 $saveButton.Enabled = $false
 $commandBar.Controls.Add($saveButton)
 
 $hint = New-Object System.Windows.Forms.Label
 $hint.Text = "Official sources only"
 $hint.Font = New-Object System.Drawing.Font("Segoe UI", 9.5)
-$hint.ForeColor = $lucasMuted
+$hint.ForeColor = $appMuted
 $hint.AutoSize = $false
 $hint.Size = New-Object System.Drawing.Size(180, 24)
 $hint.Location = New-Object System.Drawing.Point(534, 28)
@@ -1121,7 +1121,7 @@ $output.Add_LinkClicked({ Start-Process $_.LinkText | Out-Null })
 $commandBar.BringToFront()
 $header.BringToFront()
 
-function Update-LucasLayout {
+function Update-AppLayout {
     $header.Width = $form.ClientSize.Width
     $signal.Left = [Math]::Max(700, $header.ClientSize.Width - 180)
     $statusShell.Left = [Math]::Max(662, $header.ClientSize.Width - 218)
@@ -1135,8 +1135,8 @@ function Update-LucasLayout {
     $commandBar.BringToFront()
 }
 
-$form.Add_Resize({ Update-LucasLayout })
-Update-LucasLayout
+$form.Add_Resize({ Update-AppLayout })
+Update-AppLayout
 
 $scanButton.Add_Click({
     $scanButton.Enabled = $false
