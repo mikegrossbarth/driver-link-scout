@@ -174,11 +174,6 @@ function Get-DriverScanData {
     $net = Get-CimInstance Win32_NetworkAdapter | Where-Object { $_.PhysicalAdapter -eq $true -and $_.Name -notmatch "Virtual|Bluetooth Device|WAN Miniport" }
     $pnp = Get-CimInstance Win32_PnPEntity | Where-Object { $_.PNPDeviceID -match "^(PCI|USB|HDAUDIO|ACPI|BTHENUM)\\" }
 
-    $links = New-Object 'System.Collections.Generic.List[object]'
-    Get-OemLinks $links $computer.Manufacturer $computer.Model $bios.SerialNumber
-    Get-ComponentLinks $links $pnp
-    Get-HardwareIdLinks $links $pnp
-
     return [pscustomobject]@{
         Computer = $computer
         Bios = $bios
@@ -188,59 +183,12 @@ function Get-DriverScanData {
         Video = $video
         Network = $net
         HardwareIds = (Get-DetectedHardwareIds $pnp)
-        Links = $links
+        Links = @()
     }
 }
 
 function Get-DriverReport {
-    $scan = Get-DriverScanData
-    $computer = $scan.Computer
-    $bios = $scan.Bios
-    $os = $scan.Os
-    $baseboard = $scan.Baseboard
-    $processor = $scan.Processor
-    $video = $scan.Video
-    $net = $scan.Network
-    $links = $scan.Links
-
-    $lines = New-Object 'System.Collections.Generic.List[string]'
-    $lines.Add("Driver Link Scout Report") | Out-Null
-    $lines.Add(("Generated: {0}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"))) | Out-Null
-    $lines.Add("") | Out-Null
-    $lines.Add("Detected computer") | Out-Null
-    $lines.Add(("Manufacturer: {0}" -f $computer.Manufacturer)) | Out-Null
-    $lines.Add(("Model: {0}" -f $computer.Model)) | Out-Null
-    $lines.Add(("Serial/Service Tag: {0}" -f $bios.SerialNumber)) | Out-Null
-    $lines.Add(("Baseboard: {0} {1}" -f $baseboard.Manufacturer, $baseboard.Product)) | Out-Null
-    $lines.Add(("OS: {0} {1} build {2}" -f $os.Caption, $os.OSArchitecture, $os.BuildNumber)) | Out-Null
-    $lines.Add(("CPU: {0}" -f $processor.Name)) | Out-Null
-    $lines.Add("") | Out-Null
-    $lines.Add("Graphics") | Out-Null
-    foreach ($item in $video) { $lines.Add(("- {0} | Driver {1}" -f $item.Name, $item.DriverVersion)) | Out-Null }
-    $lines.Add("") | Out-Null
-    $lines.Add("Network adapters") | Out-Null
-    foreach ($item in $net) { $lines.Add(("- {0} | Driver {1}" -f $item.Name, $item.DriverVersion)) | Out-Null }
-    $lines.Add("") | Out-Null
-    $lines.Add("Official driver/support URLs") | Out-Null
-    $lines.Add("Inspect these pages before installing anything. Prefer the exact PC/motherboard manufacturer page first.") | Out-Null
-    $lines.Add("") | Out-Null
-
-    $i = 1
-    foreach ($link in $links) {
-        $lines.Add(("{0}. [{1}] {2}" -f $i, $link.Priority, $link.Title)) | Out-Null
-        $lines.Add(("   {0}" -f $link.Url)) | Out-Null
-        $lines.Add(("   Why: {0}" -f $link.Reason)) | Out-Null
-        $lines.Add("") | Out-Null
-        $i++
-    }
-
-    $lines.Add("Safety notes") | Out-Null
-    $lines.Add("- Do not use third-party driver updater sites.") | Out-Null
-    $lines.Add("- Install OEM laptop/prebuilt drivers before generic component drivers.") | Out-Null
-    $lines.Add("- Create a restore point before driver or BIOS/firmware updates.") | Out-Null
-    $lines.Add("- BIOS/firmware updates should come only from the exact PC or motherboard maker.") | Out-Null
-
-    return ($lines -join [Environment]::NewLine)
+    return Get-ExactCatalogDownloadReport
 }
 
 function Get-CatalogDownloadUrls {
@@ -280,26 +228,36 @@ function Get-CatalogDownloadUrls {
 }
 
 function Get-ExactCatalogDownloadReport {
-    $scan = Get-DriverScanData
+    $candidates = @(Get-DriverNeedCandidates | Where-Object { $_.HardwareId } | Select-Object -First 25)
     $lines = New-Object 'System.Collections.Generic.List[string]'
     $lines.Add("LUCAS Exact Driver Download Links") | Out-Null
     $lines.Add(("Generated: {0}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"))) | Out-Null
     $lines.Add("") | Out-Null
-    $lines.Add("Source: Microsoft Update Catalog direct package URLs for detected hardware IDs.") | Out-Null
+    $lines.Add("Source: Microsoft Update Catalog direct package URLs for driver-needed/core components only.") | Out-Null
     $lines.Add("Click any URL in this report to open it.") | Out-Null
     $lines.Add("") | Out-Null
 
-    foreach ($hardwareId in $scan.HardwareIds) {
-        $lines.Add($hardwareId) | Out-Null
+    if ($candidates.Count -eq 0) {
+        $lines.Add("No driver-needed/core components with hardware IDs were found.") | Out-Null
+        return ($lines -join [Environment]::NewLine)
+    }
+
+    $seenHardwareIds = New-Object 'System.Collections.Generic.HashSet[string]'
+    foreach ($device in $candidates) {
+        $hardwareId = $device.HardwareId
+        if (-not $seenHardwareIds.Add($hardwareId)) { continue }
+
+        $lines.Add($device.Name) | Out-Null
+        $lines.Add(("  Reason: {0}" -f $device.Reason)) | Out-Null
+        $lines.Add(("  Hardware ID: {0}" -f $hardwareId)) | Out-Null
         try {
-            $matches = @(Get-CatalogDownloadUrls $hardwareId 3)
+            $matches = @(Get-CatalogDownloadUrls $hardwareId 2)
             if ($matches.Count -eq 0) {
-                $lines.Add("  No direct Catalog package URL found.") | Out-Null
-                $lines.Add(("  Search manually: https://www.catalog.update.microsoft.com/Search.aspx?q={0}" -f (Encode-Query $hardwareId))) | Out-Null
+                $lines.Add("  No direct package URL found.") | Out-Null
             }
             else {
                 $n = 1
-                foreach ($match in $matches | Select-Object -First 6) {
+                foreach ($match in $matches | Select-Object -First 4) {
                     $lines.Add(("  {0}. {1}" -f $n, $match.Url)) | Out-Null
                     $n++
                 }
@@ -307,7 +265,6 @@ function Get-ExactCatalogDownloadReport {
         }
         catch {
             $lines.Add(("  Lookup failed: {0}" -f $_.Exception.Message)) | Out-Null
-            $lines.Add(("  Search manually: https://www.catalog.update.microsoft.com/Search.aspx?q={0}" -f (Encode-Query $hardwareId))) | Out-Null
         }
         $lines.Add("") | Out-Null
     }
@@ -588,7 +545,7 @@ function New-DriverDownloadPack {
     }
 
     if ($downloaded -eq 0) {
-        $manifest.Add("No driver packages were downloaded. Run NEEDED LINKS to inspect official web candidates for this PC.") | Out-Null
+        $manifest.Add("No driver packages were downloaded. Run SCAN LINKS to inspect direct package URL results for this PC.") | Out-Null
     }
     $manifest.Add("Install note") | Out-Null
     $manifest.Add("- Catalog packages are often .cab files. Install manually through Device Manager or pnputil after confirming the correct device/OS.") | Out-Null
@@ -690,7 +647,7 @@ $title.Location = New-Object System.Drawing.Point(28, 68)
 $header.Controls.Add($title)
 
 $subtitle = New-Object System.Windows.Forms.Label
-$subtitle.Text = "Inspect hardware, resolve direct Microsoft Catalog package links, or prep official driver download sources."
+$subtitle.Text = "Scan this custom PC and download matched Microsoft Catalog driver packages."
 $subtitle.Font = New-Object System.Drawing.Font("Segoe UI", 10.5)
 $subtitle.ForeColor = $lucasMuted
 $subtitle.BackColor = [System.Drawing.Color]::Transparent
@@ -754,23 +711,17 @@ $commandBar.Anchor = "Top,Left,Right"
 $commandBar.BackColor = $lucasPanel
 $main.Controls.Add($commandBar)
 
-$scanButton = New-LucasButton "INSPECT" 18 18 92 $lucasGreen $lucasBg
+$scanButton = New-LucasButton "SCAN LINKS" 18 18 132 $lucasGreen $lucasBg
 $commandBar.Controls.Add($scanButton)
 
-$neededButton = New-LucasButton "NEEDED LINKS" 122 18 142 $lucasBlue $lucasBg
-$commandBar.Controls.Add($neededButton)
-
-$exactButton = New-LucasButton "CATALOG" 276 18 104 $lucasPanel2 $lucasText
-$commandBar.Controls.Add($exactButton)
-
-$downloadButton = New-LucasButton "DOWNLOAD" 392 18 112 $lucasOrange $lucasBg
+$downloadButton = New-LucasButton "DOWNLOAD" 164 18 132 $lucasOrange $lucasBg
 $commandBar.Controls.Add($downloadButton)
 
-$copyButton = New-LucasButton "COPY" 516 18 78 $lucasPanel2 $lucasText
+$copyButton = New-LucasButton "COPY" 310 18 94 $lucasPanel2 $lucasText
 $copyButton.Enabled = $false
 $commandBar.Controls.Add($copyButton)
 
-$saveButton = New-LucasButton "SAVE" 606 18 78 $lucasPanel2 $lucasText
+$saveButton = New-LucasButton "SAVE" 418 18 94 $lucasPanel2 $lucasText
 $saveButton.Enabled = $false
 $commandBar.Controls.Add($saveButton)
 
@@ -780,7 +731,7 @@ $hint.Font = New-Object System.Drawing.Font("Segoe UI", 9.5)
 $hint.ForeColor = $lucasMuted
 $hint.AutoSize = $false
 $hint.Size = New-Object System.Drawing.Size(180, 24)
-$hint.Location = New-Object System.Drawing.Point(704, 28)
+$hint.Location = New-Object System.Drawing.Point(534, 28)
 $hint.Anchor = "Top,Left"
 $commandBar.Controls.Add($hint)
 
@@ -796,7 +747,7 @@ $output.Font = New-Object System.Drawing.Font("Cascadia Mono", 10)
 $output.BackColor = [System.Drawing.Color]::FromArgb(8, 13, 21)
 $output.ForeColor = [System.Drawing.Color]::FromArgb(215, 228, 236)
 $output.SelectionBackColor = [System.Drawing.Color]::FromArgb(37, 84, 108)
-$output.Text = "Ready for scan.`r`n`r`nChoose INSPECT for hardware, NEEDED LINKS for official per-component candidates, CATALOG for direct package URLs, or DOWNLOAD to save Microsoft Catalog driver packages."
+$output.Text = "Ready.`r`n`r`nChoose SCAN LINKS to show direct driver package URLs only, or DOWNLOAD to save matched Microsoft Catalog driver packages."
 $reportShell.Controls.Add($output)
 $output.Add_LinkClicked({ Start-Process $_.LinkText | Out-Null })
 $commandBar.BringToFront()
@@ -821,19 +772,17 @@ Update-LucasLayout
 
 $scanButton.Add_Click({
     $scanButton.Enabled = $false
-    $neededButton.Enabled = $false
-    $exactButton.Enabled = $false
     $downloadButton.Enabled = $false
     $copyButton.Enabled = $false
     $saveButton.Enabled = $false
-    $status.Text = "Scanning..."
-    $output.Text = "Scanning this PC. This may take a few seconds..."
+    $status.Text = "Resolving..."
+    $output.Text = "Finding direct Microsoft Catalog driver package URLs. This can take a minute..."
     [System.Windows.Forms.Application]::DoEvents()
 
     try {
         $report = Get-DriverReport
         $output.Text = $report
-        $status.Text = "Scan complete."
+        $status.Text = "Links ready."
         $copyButton.Enabled = $true
         $saveButton.Enabled = $true
     }
@@ -843,84 +792,6 @@ $scanButton.Add_Click({
     }
     finally {
         $scanButton.Enabled = $true
-        $neededButton.Enabled = $true
-        $exactButton.Enabled = $true
-        $downloadButton.Enabled = $true
-    }
-})
-
-$neededButton.Add_Click({
-    $answer = [System.Windows.Forms.MessageBox]::Show(
-        "This will identify components that likely need driver attention and search the web for official per-component download candidates. It filters to known Microsoft/OEM/vendor domains and will not download or install anything.",
-        "Search needed driver links?",
-        [System.Windows.Forms.MessageBoxButtons]::OKCancel,
-        [System.Windows.Forms.MessageBoxIcon]::Information
-    )
-    if ($answer -ne [System.Windows.Forms.DialogResult]::OK) { return }
-
-    $scanButton.Enabled = $false
-    $neededButton.Enabled = $false
-    $exactButton.Enabled = $false
-    $downloadButton.Enabled = $false
-    $copyButton.Enabled = $false
-    $saveButton.Enabled = $false
-    $status.Text = "Searching..."
-    $output.Text = "Identifying driver-needed components and searching official sources. This can take a few minutes..."
-    [System.Windows.Forms.Application]::DoEvents()
-
-    try {
-        $report = Get-NeededDriverDownloadReport
-        $output.Text = $report
-        $status.Text = "Needed links ready"
-        $copyButton.Enabled = $true
-        $saveButton.Enabled = $true
-    }
-    catch {
-        $output.Text = "Needed-link search failed:`r`n`r`n$($_.Exception.Message)"
-        $status.Text = "Search failed"
-    }
-    finally {
-        $scanButton.Enabled = $true
-        $neededButton.Enabled = $true
-        $exactButton.Enabled = $true
-        $downloadButton.Enabled = $true
-    }
-})
-
-$exactButton.Add_Click({
-    $answer = [System.Windows.Forms.MessageBox]::Show(
-        "This will use the internet to search Microsoft Update Catalog for direct package URLs matching detected hardware IDs. It will not download or install anything.",
-        "Find exact download links?",
-        [System.Windows.Forms.MessageBoxButtons]::OKCancel,
-        [System.Windows.Forms.MessageBoxIcon]::Information
-    )
-    if ($answer -ne [System.Windows.Forms.DialogResult]::OK) { return }
-
-    $scanButton.Enabled = $false
-    $neededButton.Enabled = $false
-    $exactButton.Enabled = $false
-    $downloadButton.Enabled = $false
-    $copyButton.Enabled = $false
-    $saveButton.Enabled = $false
-    $status.Text = "Resolving..."
-    $output.Text = "Finding direct Microsoft Catalog package URLs. This can take a minute..."
-    [System.Windows.Forms.Application]::DoEvents()
-
-    try {
-        $report = Get-ExactCatalogDownloadReport
-        $output.Text = $report
-        $status.Text = "Links ready"
-        $copyButton.Enabled = $true
-        $saveButton.Enabled = $true
-    }
-    catch {
-        $output.Text = "Exact-link lookup failed:`r`n`r`n$($_.Exception.Message)"
-        $status.Text = "Lookup failed"
-    }
-    finally {
-        $scanButton.Enabled = $true
-        $neededButton.Enabled = $true
-        $exactButton.Enabled = $true
         $downloadButton.Enabled = $true
     }
 })
@@ -935,8 +806,6 @@ $downloadButton.Add_Click({
     if ($answer -ne [System.Windows.Forms.DialogResult]::OK) { return }
 
     $scanButton.Enabled = $false
-    $neededButton.Enabled = $false
-    $exactButton.Enabled = $false
     $downloadButton.Enabled = $false
     $copyButton.Enabled = $false
     $saveButton.Enabled = $false
@@ -957,8 +826,6 @@ $downloadButton.Add_Click({
     }
     finally {
         $scanButton.Enabled = $true
-        $neededButton.Enabled = $true
-        $exactButton.Enabled = $true
         $downloadButton.Enabled = $true
     }
 })

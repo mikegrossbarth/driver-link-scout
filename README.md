@@ -2,19 +2,17 @@
 
 Driver Link Scout is a LUCAS-themed, Windows-only utility that scans the current PC and prints official driver URLs.
 
-It can identify components that likely need driver attention, search official vendor/Microsoft sources for that specific part, and download Microsoft Update Catalog driver packages for detected hardware IDs. It does not install drivers or change the computer.
+It identifies driver-needed/core components and resolves Microsoft Update Catalog driver package URLs for detected hardware IDs. It can also download the matched packages. It does not install drivers or change the computer.
 
 ## How to Run
 
 1. Open this folder on the Windows computer you want to scan.
 2. Double-click `Driver Link Scout.vbs`.
-3. Press `Inspect` for a read-only hardware and source report.
-4. Press `Needed Links` to identify components that likely need driver attention and search official sources for that specific part.
-5. Press `Catalog` to search Microsoft Update Catalog for direct driver package URLs matching detected hardware IDs.
-6. Press `Download` to save matched Microsoft Update Catalog driver packages into a folder in Downloads.
-7. Use `Copy Report` or `Save Report` if you want to share the list.
+3. Press `Scan Links` to show direct driver package URLs only.
+4. Press `Download` to save matched Microsoft Update Catalog driver packages into a folder in Downloads.
+5. Use `Copy` or `Save` if you want to share the list.
 
-URLs in the report are clickable. `Needed Links` filters web results to known official Microsoft/OEM/vendor domains. `Catalog` uses Microsoft Update Catalog direct package URLs where available, usually `.cab` files. `Download` saves matched Microsoft Catalog packages only; it does not install or run them.
+URLs in the report are clickable. `Download` saves matched Microsoft Catalog packages only; it does not install or run them.
 
 ## What It Checks
 
@@ -26,14 +24,9 @@ URLs in the report are clickable. `Needed Links` filters web results to known of
 - Physical network adapters
 - Plug and Play hardware IDs for driver catalog searches
 
-## Link Priority
+## Download Source
 
-Use the PC maker or motherboard maker first:
-Dell, Lenovo, HP, ASUS, MSI, Gigabyte, Acer, Microsoft Surface, etc.
-
-Then use Microsoft Update / Microsoft Update Catalog.
-
-Then use component makers like Intel, AMD, NVIDIA, or Realtek.
+Driver Link Scout downloads only matched Microsoft Update Catalog packages by detected hardware ID.
 
 ## Safety Notes
 
