@@ -331,8 +331,9 @@ $form.BackColor = $lucasBg
 $form.ForeColor = $lucasText
 
 $header = New-Object System.Windows.Forms.Panel
-$header.Dock = "Top"
-$header.Height = 172
+$header.Location = New-Object System.Drawing.Point(0, 0)
+$header.Size = New-Object System.Drawing.Size($form.ClientSize.Width, 172)
+$header.Anchor = "Top,Left,Right"
 $header.BackColor = $lucasPanel
 $header.Add_Paint({
     param($sender, $event)
@@ -413,20 +414,24 @@ $status.Location = New-Object System.Drawing.Point(36, 8)
 $statusShell.Controls.Add($status)
 
 $main = New-Object System.Windows.Forms.Panel
-$main.Dock = "Fill"
-$main.Padding = New-Object System.Windows.Forms.Padding(24, 22, 24, 22)
+$main.Location = New-Object System.Drawing.Point(24, 194)
+$main.Size = New-Object System.Drawing.Size(($form.ClientSize.Width - 48), ($form.ClientSize.Height - 216))
+$main.Anchor = "Top,Bottom,Left,Right"
 $main.BackColor = $lucasBg
 $form.Controls.Add($main)
 
 $reportShell = New-Object System.Windows.Forms.Panel
-$reportShell.Dock = "Fill"
+$reportShell.Location = New-Object System.Drawing.Point(0, 92)
+$reportShell.Size = New-Object System.Drawing.Size($main.ClientSize.Width, ($main.ClientSize.Height - 92))
+$reportShell.Anchor = "Top,Bottom,Left,Right"
 $reportShell.Padding = New-Object System.Windows.Forms.Padding(1)
 $reportShell.BackColor = [System.Drawing.Color]::FromArgb(39, 62, 82)
 $main.Controls.Add($reportShell)
 
 $commandBar = New-Object System.Windows.Forms.Panel
-$commandBar.Dock = "Top"
-$commandBar.Height = 76
+$commandBar.Location = New-Object System.Drawing.Point(0, 0)
+$commandBar.Size = New-Object System.Drawing.Size($main.ClientSize.Width, 76)
+$commandBar.Anchor = "Top,Left,Right"
 $commandBar.BackColor = $lucasPanel
 $main.Controls.Add($commandBar)
 
@@ -468,9 +473,24 @@ $output.SelectionBackColor = [System.Drawing.Color]::FromArgb(37, 84, 108)
 $output.Text = "Ready for scan.`r`n`r`nChoose RUN INSPECTION for a read-only list, or PREP DOWNLOADS to create a Downloads folder with official source shortcuts."
 $reportShell.Controls.Add($output)
 $commandBar.BringToFront()
-$main.Controls.SetChildIndex($commandBar, 0)
-$form.Controls.SetChildIndex($header, 0)
 $header.BringToFront()
+
+function Update-LucasLayout {
+    $header.Width = $form.ClientSize.Width
+    $signal.Left = [Math]::Max(700, $header.ClientSize.Width - 180)
+    $statusShell.Left = [Math]::Max(662, $header.ClientSize.Width - 218)
+
+    $mainWidth = [Math]::Max(600, $form.ClientSize.Width - 48)
+    $mainHeight = [Math]::Max(320, $form.ClientSize.Height - 216)
+    $main.SetBounds(24, 194, $mainWidth, $mainHeight)
+
+    $commandBar.SetBounds(0, 0, $main.ClientSize.Width, 76)
+    $reportShell.SetBounds(0, 92, $main.ClientSize.Width, [Math]::Max(160, $main.ClientSize.Height - 92))
+    $commandBar.BringToFront()
+}
+
+$form.Add_Resize({ Update-LucasLayout })
+Update-LucasLayout
 
 $scanButton.Add_Click({
     $scanButton.Enabled = $false
