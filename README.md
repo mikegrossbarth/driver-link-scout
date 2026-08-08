@@ -8,9 +8,11 @@ It does not download drivers. It does not install drivers. It does not change th
 
 1. Open this folder on the Windows computer you want to scan.
 2. Double-click `Driver Link Scout.cmd`.
-3. Press `Scan This PC`.
-4. Inspect the report.
+3. Press `Run Inspection` for a read-only report.
+4. Press `Prep Downloads` to create a folder in Downloads with official driver-source shortcuts and an HTML launch page.
 5. Use `Copy Report` or `Save Report` if you want to share the list.
+
+`Prep Downloads` does not install drivers. It prepares official download locations so the user can inspect and download from trusted sources.
 
 ## What It Checks
 

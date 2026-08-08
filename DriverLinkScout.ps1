@@ -143,7 +143,7 @@ function Get-HardwareIdLinks {
     }
 }
 
-function Get-DriverReport {
+function Get-DriverScanData {
     $computer = Get-CimInstance Win32_ComputerSystem
     $bios = Get-CimInstance Win32_BIOS
     $os = Get-CimInstance Win32_OperatingSystem
@@ -157,6 +157,29 @@ function Get-DriverReport {
     Get-OemLinks $links $computer.Manufacturer $computer.Model $bios.SerialNumber
     Get-ComponentLinks $links $pnp
     Get-HardwareIdLinks $links $pnp
+
+    return [pscustomobject]@{
+        Computer = $computer
+        Bios = $bios
+        Os = $os
+        Baseboard = $baseboard
+        Processor = $processor
+        Video = $video
+        Network = $net
+        Links = $links
+    }
+}
+
+function Get-DriverReport {
+    $scan = Get-DriverScanData
+    $computer = $scan.Computer
+    $bios = $scan.Bios
+    $os = $scan.Os
+    $baseboard = $scan.Baseboard
+    $processor = $scan.Processor
+    $video = $scan.Video
+    $net = $scan.Network
+    $links = $scan.Links
 
     $lines = New-Object 'System.Collections.Generic.List[string]'
     $lines.Add("Driver Link Scout Report") | Out-Null
@@ -196,6 +219,67 @@ function Get-DriverReport {
     $lines.Add("- BIOS/firmware updates should come only from the exact PC or motherboard maker.") | Out-Null
 
     return ($lines -join [Environment]::NewLine)
+}
+
+function ConvertTo-SafeFileName {
+    param([string]$Value)
+    $safe = $Value -replace '[\\/:*?"<>|]', '-'
+    $safe = $safe -replace '\s+', ' '
+    $safe = $safe.Trim()
+    if ($safe.Length -gt 84) { $safe = $safe.Substring(0, 84).Trim() }
+    if ([string]::IsNullOrWhiteSpace($safe)) { return "Driver Source" }
+    return $safe
+}
+
+function New-InternetShortcut {
+    param(
+        [string]$Path,
+        [string]$Url
+    )
+
+    $content = "[InternetShortcut]`r`nURL=$Url`r`n"
+    [System.IO.File]::WriteAllText($Path, $content)
+}
+
+function New-DriverDownloadPack {
+    $scan = Get-DriverScanData
+    $computer = $scan.Computer
+    $links = $scan.Links
+
+    $root = Join-Path ([Environment]::GetFolderPath("UserProfile")) "Downloads"
+    $folderName = "LUCAS-Driver-Downloads-{0}" -f (Get-Date -Format "yyyyMMdd-HHmmss")
+    $folder = Join-Path $root $folderName
+    New-Item -ItemType Directory -Path $folder -Force | Out-Null
+
+    $reportPath = Join-Path $folder "driver-link-report.txt"
+    [System.IO.File]::WriteAllText($reportPath, (Get-DriverReport))
+
+    $htmlPath = Join-Path $folder "open-driver-sources.html"
+    $html = New-Object 'System.Collections.Generic.List[string]'
+    $html.Add("<!doctype html><html><head><meta charset='utf-8'><title>LUCAS Driver Sources</title>") | Out-Null
+    $html.Add("<style>body{background:#070b12;color:#eaf2f8;font-family:Segoe UI,Arial,sans-serif;margin:32px}a{color:#29de9c}section{border-top:1px solid #273e52;padding-top:16px;margin-top:22px}.tag{color:#071218;background:#ffb153;padding:3px 7px;font-size:12px;font-weight:700}.reason{color:#97a6b8}</style></head><body>") | Out-Null
+    $html.Add("<h1>LUCAS Driver Sources</h1>") | Out-Null
+    $html.Add(("<p>{0} {1}</p>" -f $computer.Manufacturer, $computer.Model)) | Out-Null
+    $html.Add("<p>This pack prepares official places to download drivers. It does not install anything, and it does not use third-party driver updater sites.</p>") | Out-Null
+
+    $i = 1
+    foreach ($link in $links) {
+        $fileName = "{0:00} - {1}.url" -f $i, (ConvertTo-SafeFileName $link.Title)
+        New-InternetShortcut (Join-Path $folder $fileName) $link.Url
+        $html.Add("<section>") | Out-Null
+        $html.Add(("<div><span class='tag'>{0}</span></div>" -f [System.Security.SecurityElement]::Escape($link.Priority))) | Out-Null
+        $html.Add(("<h2><a href='{0}'>{1}</a></h2>" -f [System.Security.SecurityElement]::Escape($link.Url), [System.Security.SecurityElement]::Escape($link.Title))) | Out-Null
+        $html.Add(("<p class='reason'>{0}</p>" -f [System.Security.SecurityElement]::Escape($link.Reason))) | Out-Null
+        $html.Add("</section>") | Out-Null
+        $i++
+    }
+    $html.Add("</body></html>") | Out-Null
+    [System.IO.File]::WriteAllText($htmlPath, ($html -join "`r`n"))
+
+    Start-Process $folder | Out-Null
+    Start-Process $htmlPath | Out-Null
+
+    return "Download prep complete.`r`n`r`nCreated folder:`r`n$folder`r`n`r`nInside it you will find:`r`n- driver-link-report.txt`r`n- open-driver-sources.html`r`n- .url shortcuts for every official source`r`n`r`nThis mode prepares official download locations. It does not install drivers or scrape unsigned packages."
 }
 
 function New-LucasButton {
@@ -286,7 +370,7 @@ $title.Location = New-Object System.Drawing.Point(28, 68)
 $header.Controls.Add($title)
 
 $subtitle = New-Object System.Windows.Forms.Label
-$subtitle.Text = "Scan this Windows PC and generate official driver/support URLs. No downloads. No installs. Just the map."
+$subtitle.Text = "Generate a clean report or prep official driver download sources. No installs, no third-party driver sites."
 $subtitle.Font = New-Object System.Drawing.Font("Segoe UI", 10.5)
 $subtitle.ForeColor = $lucasMuted
 $subtitle.BackColor = [System.Drawing.Color]::Transparent
@@ -340,23 +424,27 @@ $commandBar.Height = 76
 $commandBar.BackColor = $lucasPanel
 $main.Controls.Add($commandBar)
 
-$scanButton = New-LucasButton "SCAN THIS PC" 18 18 154 $lucasGreen $lucasBg
+$scanButton = New-LucasButton "RUN INSPECTION" 18 18 164 $lucasGreen $lucasBg
 $commandBar.Controls.Add($scanButton)
 
-$copyButton = New-LucasButton "COPY REPORT" 186 18 140 $lucasPanel2 $lucasText
+$downloadButton = New-LucasButton "PREP DOWNLOADS" 196 18 164 $lucasBlue $lucasBg
+$commandBar.Controls.Add($downloadButton)
+
+$copyButton = New-LucasButton "COPY REPORT" 374 18 140 $lucasPanel2 $lucasText
 $copyButton.Enabled = $false
 $commandBar.Controls.Add($copyButton)
 
-$saveButton = New-LucasButton "SAVE REPORT" 340 18 140 $lucasPanel2 $lucasText
+$saveButton = New-LucasButton "SAVE REPORT" 528 18 140 $lucasPanel2 $lucasText
 $saveButton.Enabled = $false
 $commandBar.Controls.Add($saveButton)
 
 $hint = New-Object System.Windows.Forms.Label
-$hint.Text = "Official sources only. OEM first, Microsoft catalog second, component vendors third."
+$hint.Text = "Official sources only"
 $hint.Font = New-Object System.Drawing.Font("Segoe UI", 9.5)
 $hint.ForeColor = $lucasMuted
-$hint.AutoSize = $true
-$hint.Location = New-Object System.Drawing.Point(504, 28)
+$hint.AutoSize = $false
+$hint.Size = New-Object System.Drawing.Size(180, 24)
+$hint.Location = New-Object System.Drawing.Point(690, 28)
 $hint.Anchor = "Top,Left"
 $commandBar.Controls.Add($hint)
 
@@ -377,12 +465,14 @@ $output.Font = New-Object System.Drawing.Font("Cascadia Mono", 10)
 $output.BackColor = [System.Drawing.Color]::FromArgb(8, 13, 21)
 $output.ForeColor = [System.Drawing.Color]::FromArgb(215, 228, 236)
 $output.SelectionBackColor = [System.Drawing.Color]::FromArgb(37, 84, 108)
-$output.Text = "Ready for scan.`r`n`r`nPress SCAN THIS PC to identify this machine and build a trusted driver-link report."
+$output.Text = "Ready for scan.`r`n`r`nChoose RUN INSPECTION for a read-only list, or PREP DOWNLOADS to create a Downloads folder with official source shortcuts."
 $reportShell.Controls.Add($output)
 $commandBar.BringToFront()
+$header.BringToFront()
 
 $scanButton.Add_Click({
     $scanButton.Enabled = $false
+    $downloadButton.Enabled = $false
     $copyButton.Enabled = $false
     $saveButton.Enabled = $false
     $status.Text = "Scanning..."
@@ -402,6 +492,41 @@ $scanButton.Add_Click({
     }
     finally {
         $scanButton.Enabled = $true
+        $downloadButton.Enabled = $true
+    }
+})
+
+$downloadButton.Add_Click({
+    $answer = [System.Windows.Forms.MessageBox]::Show(
+        "This will scan the PC, create a folder in Downloads, and open an HTML page with official driver download sources. It will not install drivers or use third-party updater sites.",
+        "Prep driver downloads?",
+        [System.Windows.Forms.MessageBoxButtons]::OKCancel,
+        [System.Windows.Forms.MessageBoxIcon]::Information
+    )
+    if ($answer -ne [System.Windows.Forms.DialogResult]::OK) { return }
+
+    $scanButton.Enabled = $false
+    $downloadButton.Enabled = $false
+    $copyButton.Enabled = $false
+    $saveButton.Enabled = $false
+    $status.Text = "Preparing..."
+    $output.Text = "Preparing official driver download sources..."
+    [System.Windows.Forms.Application]::DoEvents()
+
+    try {
+        $result = New-DriverDownloadPack
+        $output.Text = $result
+        $status.Text = "Prep complete"
+        $copyButton.Enabled = $true
+        $saveButton.Enabled = $true
+    }
+    catch {
+        $output.Text = "Download prep failed:`r`n`r`n$($_.Exception.Message)"
+        $status.Text = "Prep failed"
+    }
+    finally {
+        $scanButton.Enabled = $true
+        $downloadButton.Enabled = $true
     }
 })
 
