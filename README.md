@@ -28,6 +28,18 @@ URLs in the report are clickable. `Download` saves matched official vendor/Micro
 
 Driver Link Scout searches Google/DuckDuckGo results, crawls official vendor/Microsoft pages, extracts direct `.exe`, `.msi`, `.zip`, or `.cab` files, and caches matches in `%LOCALAPPDATA%\LUCAS Driver Link Scout\driver-url-cache.json`.
 
+## Optional AI Resolver
+
+If `OPENAI_API_KEY` is set on the Windows PC, Driver Link Scout asks OpenAI with web search to find exact official driver file URLs before falling back to the built-in crawler.
+
+PowerShell:
+
+```powershell
+[Environment]::SetEnvironmentVariable("OPENAI_API_KEY", "your_api_key_here", "User")
+```
+
+Restart the app after setting the key.
+
 ## Safety Notes
 
 - Avoid third-party driver updater sites.

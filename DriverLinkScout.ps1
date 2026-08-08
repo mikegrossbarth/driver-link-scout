@@ -401,6 +401,85 @@ function Get-DirectDownloadsFromPage {
     return @($downloads)
 }
 
+function Get-AiDriverUrls {
+    param(
+        $Device,
+        [array]$AllowedDomains
+    )
+
+    $apiKey = [Environment]::GetEnvironmentVariable("OPENAI_API_KEY", "User")
+    if ([string]::IsNullOrWhiteSpace($apiKey)) {
+        $apiKey = [Environment]::GetEnvironmentVariable("OPENAI_API_KEY", "Machine")
+    }
+    if ([string]::IsNullOrWhiteSpace($apiKey)) {
+        $apiKey = $env:OPENAI_API_KEY
+    }
+    if ([string]::IsNullOrWhiteSpace($apiKey)) { return @() }
+
+    $model = $env:LUCAS_OPENAI_MODEL
+    if ([string]::IsNullOrWhiteSpace($model)) { $model = "gpt-5.6-terra" }
+
+    $prompt = @"
+You are helping a custom PC builder find exact driver download files.
+
+Device name: $($Device.Name)
+Device manufacturer: $($Device.Manufacturer)
+Device class: $($Device.PnpClass)
+Hardware ID: $($Device.HardwareId)
+Allowed domains: $($AllowedDomains -join ", ")
+
+Search the web. Return ONLY JSON with this shape:
+{"urls":["https://..."]}
+
+Rules:
+- Include only direct driver package file URLs ending in .exe, .msi, .zip, or .cab.
+- Include only official vendor or Microsoft domains from the allowed domains list.
+- Do not include support pages, search pages, homepages, manuals, BIOS files, ads, mirrors, forums, or third-party driver updater sites.
+- If no exact direct driver file URL is findable, return {"urls":[]}.
+"@
+
+    $body = @{
+        model = $model
+        tools = @(@{ type = "web_search" })
+        input = $prompt
+    } | ConvertTo-Json -Depth 8
+
+    try {
+        $response = Invoke-RestMethod `
+            -Uri "https://api.openai.com/v1/responses" `
+            -Method Post `
+            -Headers @{ "Authorization" = "Bearer $apiKey"; "Content-Type" = "application/json" } `
+            -Body $body `
+            -TimeoutSec 90
+    }
+    catch {
+        return @()
+    }
+
+    $text = $response.output_text
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        $text = ($response.output | ConvertTo-Json -Depth 12)
+    }
+    $jsonText = ([regex]::Match($text, '\{[\s\S]*\}')).Value
+    if ([string]::IsNullOrWhiteSpace($jsonText)) { return @() }
+
+    try {
+        $parsed = ConvertFrom-Json $jsonText
+    }
+    catch {
+        return @()
+    }
+
+    $urls = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($url in @($parsed.urls)) {
+        if (-not (Test-DriverDownloadUrl $url)) { continue }
+        if (-not (Test-AllowedDomain $url $AllowedDomains)) { continue }
+        if ($urls -notcontains $url) { $urls.Add($url) | Out-Null }
+    }
+
+    return @($urls | Select-Object -First 4)
+}
+
 function Get-SmartDriverUrls {
     param(
         $Device,
@@ -426,7 +505,14 @@ function Get-SmartDriverUrls {
     $found = New-Object 'System.Collections.Generic.List[string]'
     $usedQuery = ""
 
+    $aiUrls = @(Get-AiDriverUrls $Device $allowedDomains)
+    foreach ($url in $aiUrls) {
+        if ($found -notcontains $url) { $found.Add($url) | Out-Null }
+    }
+    if ($found.Count -gt 0) { $usedQuery = "OpenAI web search resolver" }
+
     foreach ($query in $queries) {
+        if ($found.Count -gt 0) { break }
         $usedQuery = $query
         $resultPages = @(Get-SearchResultUrls $query $allowedDomains 8)
         foreach ($page in $resultPages) {
